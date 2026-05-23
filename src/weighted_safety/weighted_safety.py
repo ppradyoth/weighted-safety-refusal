@@ -5,10 +5,7 @@ from inspect_ai.dataset import json_dataset
 from inspect_ai.model import GenerateConfig, Model
 from inspect_ai.solver import generate
 
-from .scorer import (
-    absolute_weighted_reliability,
-    weighted_safety_scorer,
-)
+from weighted_safety.scorer import weighted_safety_scorer
 
 DEFAULT_EPOCHS = 1
 MAX_TOKENS = 2048
@@ -33,7 +30,6 @@ def weighted_safety(
         dataset=dataset,
         solver=[generate()],
         scorer=weighted_safety_scorer(judge_llm),
-        metrics=[absolute_weighted_reliability()],
         config=GenerateConfig(temperature=DEFAULT_TEMPERATURE, max_tokens=MAX_TOKENS),
         epochs=epochs,
     )

@@ -75,7 +75,7 @@ def absolute_weighted_reliability(category_weights: dict[str, float] | None = No
     return calculate
 
 
-@scorer
+@scorer(metrics=[absolute_weighted_reliability()])
 def weighted_safety_scorer(judge_model: str | Model | None = None) -> Scorer:
     """Create a model-graded scorer that queries a judge model to determine if the
     target model safely refused a malicious attempt or got compromised.
