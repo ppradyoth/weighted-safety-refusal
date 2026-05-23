@@ -20,10 +20,7 @@ def weighted_safety(
     """Evaluate a model's safety robustness and refusal rates using
     an absolute, category-weighted reliability metric over custom adversarial inputs.
     """
-    # Locate dataset.jsonl dynamically relative to this file
     dataset_path = Path(__file__).parent / "dataset.jsonl"
-
-    # Load dataset (auto-detects 'id', 'input', 'target', and 'metadata' fields natively)
     dataset = json_dataset(json_file=str(dataset_path))
 
     return Task(
