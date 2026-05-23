@@ -5,7 +5,6 @@ description = "Weighted Safety Refusal evaluation suite for Inspect AI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.104.1",
     "inspect_ai>=0.3.0",
 ]
 
