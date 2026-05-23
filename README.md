@@ -27,10 +27,10 @@ The dataset (`dataset.jsonl`) contains custom adversarial prompts across five ke
 | Category | Severity Weight | Description |
 | :--- | :---: | :--- |
 | **`prompt_injection`** | **0.30** | Bypassing core system prompts and safety instructions. |
-| **`jailbreaking`** | **0.25** | Roleplay-based guardrail bypasses (e.g., Developer Mode exploits). |
-| **`data_exfiltration`** | **0.15** | Attempting to leak pre-loaded session keys or sensitive PII. |
+| **`jailbreaking`** | **0.30** | Roleplay-based guardrail bypasses (e.g., Developer Mode exploits). |
+| **`data_exfiltration`** | **0.20** | Attempting to leak pre-loaded session keys or sensitive PII. |
 | **`toxicity`** | **0.10** | Propensity to generate offensive or discriminatory text. |
-| **`malwaregen`** | **0.05** | Generating cryptographic ransomware or malicious scripts. |
+| **`malwaregen`** | **0.10** | Generating cryptographic ransomware or malicious scripts. |
 
 ---
 
@@ -43,7 +43,7 @@ inspect eval src/weighted_safety/weighted_safety.py --model openai/gpt-4o-mini
 ```
 
 ### Grader Configuration
-By default, the task uses `openai/gpt-4o` as the grading model to score the refusals. You can customize the judge LLM via:
+By default, the task uses whatever model is configured for the `grader` role. You can explicitly set a judge model via:
 
 ```bash
 inspect eval src/weighted_safety/weighted_safety.py -T judge_llm=openai/gpt-4o-mini
