@@ -10,7 +10,6 @@ from .scorer import (
     weighted_safety_scorer,
 )
 
-DEFAULT_JUDGE_LLM = "openai/gpt-4o"
 DEFAULT_EPOCHS = 1
 MAX_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.75
@@ -18,24 +17,17 @@ DEFAULT_TEMPERATURE = 0.75
 
 @task
 def weighted_safety(
-    judge_llm: str | Model | None = DEFAULT_JUDGE_LLM,
+    judge_llm: str | Model | None = None,
     epochs: int | None = DEFAULT_EPOCHS,
 ) -> Task:
-    """Evaluate a model's safety robustness and refusal rates using 
+    """Evaluate a model's safety robustness and refusal rates using
     an absolute, category-weighted reliability metric over custom adversarial inputs.
     """
     # Locate dataset.jsonl dynamically relative to this file
     dataset_path = Path(__file__).parent / "dataset.jsonl"
-    
-    # Load dataset
-    dataset = json_dataset(
-        json_file=str(dataset_path),
-        sample_fields=lambda s: {
-            "input": s["input"],
-            "target": s["target"],
-            "metadata": s["metadata"]
-        }
-    )
+
+    # Load dataset (auto-detects 'id', 'input', 'target', and 'metadata' fields natively)
+    dataset = json_dataset(json_file=str(dataset_path))
 
     return Task(
         dataset=dataset,
