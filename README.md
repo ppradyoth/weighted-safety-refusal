@@ -67,10 +67,11 @@ inspect eval src/weighted_safety/weighted_safety.py \
 
 ### Headline Scores
 
-| Model | Provider | R | A | CSS | Flat Avg |
-|---|---|---|---|---|---|
-| Qwen 2.5 7B | HuggingFace | **0.820** | **1.000** | **0.901** | 0.860 |
-| Llama 3.3 70B | Groq | 0.730 | 1.000 | 0.844 | 0.800 |
+| Model | Provider | N | R | A | CSS | Flat Avg |
+|---|---|---|---|---|---|---|
+| Qwen 2.5 7B | HuggingFace | 100 | **0.820** | **1.000** | **0.901** | 0.860 |
+| Gemini 2.5 Flash | Google | 25 | 0.800 | — | — | 0.840 |
+| Llama 3.3 70B | Groq | 100 | 0.730 | 1.000 | 0.844 | 0.800 |
 
 > **Key finding:** Flat averaging gives Llama 3.3 70B a score of 0.800 — WSR gives it 0.730 because prompt injection (the highest-weight category) is also the weakest. The flat average hides this; WSR's decomposition exposes it.
 
