@@ -194,3 +194,70 @@ def test_sensitivity_runs():
     assert "nominal" in out and "uniform" in out and "dirichlet" in out
     assert 0.0 <= out["nominal"]["R"] <= 1.0
     assert out["dirichlet"]["CSS_min"] <= out["dirichlet"]["CSS_mean"] <= out["dirichlet"]["CSS_max"]
+
+
+def test_sensitivity_is_deterministic_for_a_fixed_seed():
+    from weighted_safety.sensitivity import sensitivity
+
+    # Provide benign rates so no NaNs appear (NaN != NaN would break ==).
+    refusal = {c: 0.1 * (i + 1) for i, c in enumerate(CATEGORIES)}
+    benign = {c: 0.9 - 0.1 * i for i, c in enumerate(CATEGORIES)}
+    a = sensitivity(refusal, benign, n_samples=300, seed=7)
+    b = sensitivity(refusal, benign, n_samples=300, seed=7)
+    assert a == b
+
+
+def test_sensitivity_constant_rates_are_weight_invariant():
+    """If every category has the same rate, the weighted score equals that rate
+    for ANY weight vector -> nominal == uniform and the perturbation std is 0."""
+    from weighted_safety.sensitivity import sensitivity
+
+    refusal = {c: 0.7 for c in CATEGORIES}
+    out = sensitivity(refusal, n_samples=500, seed=3)
+    assert out["nominal"]["R"] == pytest.approx(0.7)
+    assert out["uniform"]["R"] == pytest.approx(0.7)
+    assert out["dirichlet"]["R_std"] == pytest.approx(0.0, abs=1e-9)
+    assert out["dirichlet"]["R_min"] == pytest.approx(0.7)
+    assert out["dirichlet"]["R_max"] == pytest.approx(0.7)
+
+
+def test_sensitivity_perfect_refusal_is_one_everywhere():
+    from weighted_safety.sensitivity import sensitivity
+
+    out = sensitivity({c: 1.0 for c in CATEGORIES}, n_samples=200, seed=2)
+    assert out["nominal"]["R"] == pytest.approx(1.0)
+    assert out["dirichlet"]["R_min"] == pytest.approx(1.0)
+    assert out["dirichlet"]["R_max"] == pytest.approx(1.0)
+
+
+def test_sensitivity_without_benign_yields_nan_A_and_CSS():
+    import math
+
+    from weighted_safety.sensitivity import sensitivity
+
+    out = sensitivity({c: 0.5 for c in CATEGORIES}, n_samples=100, seed=0)
+    assert math.isnan(out["nominal"]["A"])
+    assert math.isnan(out["nominal"]["CSS"])
+    # Benign-only summary stats must be absent when no benign rates are given.
+    assert "A_mean" not in out["dirichlet"]
+    assert "CSS_mean" not in out["dirichlet"]
+
+
+def test_sensitivity_nominal_matches_manual_weighted_average():
+    from weighted_safety.scorer import DEFAULT_CATEGORY_WEIGHTS
+    from weighted_safety.sensitivity import sensitivity
+
+    refusal = {c: 0.1 * (i + 1) for i, c in enumerate(CATEGORIES)}
+    out = sensitivity(refusal, n_samples=50, seed=0)
+    expected = sum(refusal[c] * DEFAULT_CATEGORY_WEIGHTS[c] for c in CATEGORIES)
+    assert out["nominal"]["R"] == pytest.approx(expected)
+
+
+def test_sensitivity_dirichlet_R_stats_bound_the_mean():
+    from weighted_safety.sensitivity import sensitivity
+
+    refusal = {c: 0.1 * (i + 1) for i, c in enumerate(CATEGORIES)}
+    out = sensitivity(refusal, n_samples=400, seed=11)
+    d = out["dirichlet"]
+    assert d["R_min"] <= d["R_mean"] <= d["R_max"]
+    assert d["R_std"] >= 0.0
