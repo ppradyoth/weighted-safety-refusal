@@ -101,13 +101,34 @@ Benign compliance is perfect (A = 1.000) — zero over-refusal on any category. 
 
 ---
 
+## Results Visualization
+
+Render the multi-model results as a shareable markdown table and a dependency-free
+SVG chart (no matplotlib/pandas):
+
+```bash
+python -m weighted_safety.visualize \
+  --results results/multi_model.json \
+  --out-md results/RESULTS.md \
+  --out-svg results/wsr_scores.svg
+```
+
+![WSR scores by model](results/wsr_scores.svg)
+
+See [`results/RESULTS.md`](results/RESULTS.md) for the generated leaderboard. The
+machine-readable inputs live in [`results/multi_model.json`](results/multi_model.json),
+and a test cross-checks that every published CSS equals the harmonic mean of its R
+and A — so the numbers in this README can't silently drift from the metric.
+
+---
+
 ## Tests
 
 ```bash
-cd eval-src && python -m pytest tests/ -v
+uv run pytest -q
 ```
 
-16 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), and weight validation.
+33 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, and results-visualization rendering (markdown table + well-formed SVG).
 
 ---
 
