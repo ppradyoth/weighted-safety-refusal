@@ -128,7 +128,7 @@ and A — so the numbers in this README can't silently drift from the metric.
 uv run pytest -q
 ```
 
-33 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, and results-visualization rendering (markdown table + well-formed SVG).
+47 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), and results-visualization rendering (markdown table + well-formed SVG).
 
 ---
 
