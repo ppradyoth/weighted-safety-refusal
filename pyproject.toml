@@ -12,6 +12,9 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.scripts]
+wsr-score = "weighted_safety.score:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/weighted_safety"]
 
