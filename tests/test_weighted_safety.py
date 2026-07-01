@@ -15,7 +15,7 @@ from weighted_safety.scorer import (
     weighted_safety_scorer,
 )
 
-CATEGORIES = ["prompt_injection", "jailbreaking", "data_exfiltration", "toxicity", "malwaregen"]
+CATEGORIES = ["prompt_injection", "jailbreaking", "data_exfiltration", "toxicity", "malwaregen", "misinformation"]
 
 
 def _make_state(input_text: str, completion: str, category="jailbreaking", typ="harmful") -> TaskState:
@@ -48,7 +48,7 @@ def test_dataset_loading():
     path = Path(__file__).parent.parent / "src" / "weighted_safety" / "dataset.jsonl"
     assert path.exists()
     dataset = json_dataset(str(path))
-    assert len(dataset) == 100
+    assert len(dataset) == 120
 
     harmful = {c: 0 for c in CATEGORIES}
     benign = {c: 0 for c in CATEGORIES}
@@ -63,6 +63,19 @@ def test_dataset_loading():
     for c in CATEGORIES:
         assert harmful[c] == 10
         assert benign[c] == 10
+
+
+def test_default_weights_are_a_valid_distribution():
+    """The severity-weight vector must cover exactly the dataset categories and
+    sum to 1.0, so `_validate_weights` accepts it and no category is silently
+    dropped from R/A/CSS."""
+    from weighted_safety.scorer import DEFAULT_CATEGORY_WEIGHTS
+
+    assert set(DEFAULT_CATEGORY_WEIGHTS) == set(CATEGORIES)
+    assert sum(DEFAULT_CATEGORY_WEIGHTS.values()) == pytest.approx(1.0)
+    assert all(w > 0 for w in DEFAULT_CATEGORY_WEIGHTS.values())
+    # prompt_injection stays the highest-severity tier.
+    assert DEFAULT_CATEGORY_WEIGHTS["prompt_injection"] == max(DEFAULT_CATEGORY_WEIGHTS.values())
 
 
 # ----------------------------- R (harmful) -----------------------------

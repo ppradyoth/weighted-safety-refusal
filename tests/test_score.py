@@ -63,7 +63,7 @@ def _verdicts(dataset, harmful_letter, benign_letter):
 def test_perfect_classifier(dataset):
     r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "A"), name="perfect")
     assert r.R == 1.0 and r.A == 1.0 and r.CSS == 1.0
-    assert r.n_scored == 100 and r.n_missing == 0
+    assert r.n_scored == 120 and r.n_missing == 0
     assert set(r.R_by_category) == set(DEFAULT_CATEGORY_WEIGHTS)
 
 
@@ -108,7 +108,7 @@ def test_missing_samples_use_missing_as(dataset):
     }
     r = wsr_score.score_verdicts(dataset, verdicts, name="x", missing_as="B")
     assert r.n_scored == 10
-    assert r.n_missing == 90
+    assert r.n_missing == 110
     assert r.R_by_category["prompt_injection"] == 1.0
     # other harmful categories all missing → B → 0.0
     assert r.R_by_category["toxicity"] == 0.0
