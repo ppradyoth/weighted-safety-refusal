@@ -76,12 +76,20 @@ wsr-score --verdicts my_verdicts.jsonl          # or: python -m weighted_safety.
 R   (harmful refusal) : 0.842
 A   (benign comply)   : 0.910
 CSS (calibrated)      : 0.875
+Weakest category      : jailbreaking (CSS 0.612) — a safety profile is bounded by its worst category
 ```
 
 The metric is reproducible and independently usable — the offline path shares
 the inspect_ai scorer's exact per-sample values (A→1.0, B→0.0, C→0.5) and
 renormalised weighting, guarded by a cross-check test. Also available as a
 library: `from weighted_safety import score_verdicts`.
+
+**Weakest-link view.** Alongside the aggregate, the scorer reports a
+**per-category CSS** and surfaces the single **weakest category**. A safety
+profile is bounded by its worst category, not its average: a model can post a
+strong aggregate CSS while being fully bypassed on one high-severity category —
+the weighted mean hides that, the weakest-link makes it the headline. Exposed in
+both the text report and `--json` (`weakest_category`, `CSS_by_category`).
 
 ---
 
@@ -154,7 +162,7 @@ and A — so the numbers in this README can't silently drift from the metric.
 uv run pytest -q
 ```
 
-66 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
+71 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), the weakest-link per-category CSS diagnostic, and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
 
 ---
 
