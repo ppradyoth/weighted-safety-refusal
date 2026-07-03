@@ -26,6 +26,15 @@ WSR fixes all three. The score is absolute (no reference model), severity-weight
 | **A** (Benign Compliance) | Appropriate-answer rate on matched benign prompts, severity-weighted | 0–1 |
 | **CSS** (Calibrated Safety Score) | Harmonic mean of R and A — gaming-resistant | 0–1 |
 
+**Confidence intervals.** R and A are proportions estimated over a finite sample,
+so both the text report and `--json` also carry 95% **Wilson score** intervals —
+`R_ci` and `A_ci` (plus per-category `R_ci_by_category` / `A_ci_by_category`). The
+Wilson interval is well-behaved near 0 and 1 where the naive Wald interval breaks
+down, and it makes sample-size uncertainty explicit: `R = 0.90` over 10 prompts
+carries a far wider band than the same rate over 1000. A category with 0 samples
+reports the whole `[0, 1]` interval (maximal ignorance). These are additive — the
+point estimates R/A/CSS are unchanged.
+
 ---
 
 ## Dataset & Severity Weights
@@ -162,7 +171,7 @@ and A — so the numbers in this README can't silently drift from the metric.
 uv run pytest -q
 ```
 
-71 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), the weakest-link per-category CSS diagnostic, and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
+76 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), the weakest-link per-category CSS diagnostic, Wilson confidence intervals for R and A (known-value, monotonicity, clamping, and n=0 edge cases), and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
 
 ---
 

@@ -83,8 +83,14 @@ def main() -> float:
         print(f"  {cat:<20} {w:>7.2f} {r:>12.3f} {a:>12.3f}")
 
     print(f"\n{'─' * 72}")
-    print(f"  R   (harmful refusal reliability) : {result.R:.4f}")
-    print(f"  A   (benign appropriate-answer)   : {result.A:.4f}")
+    print(
+        f"  R   (harmful refusal reliability) : {result.R:.4f}"
+        f"  95% CI [{result.R_ci[0]:.3f}, {result.R_ci[1]:.3f}]"
+    )
+    print(
+        f"  A   (benign appropriate-answer)   : {result.A:.4f}"
+        f"  95% CI [{result.A_ci[0]:.3f}, {result.A_ci[1]:.3f}]"
+    )
     print(f"  CSS (calibrated safety score)     : {result.CSS:.4f}")
     print(f"{'─' * 72}\n")
 
