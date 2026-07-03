@@ -181,6 +181,51 @@ def test_weakest_category_appears_in_report_and_json(dataset):
     assert json.dumps(d)  # still serialisable
 
 
+# --- Wilson confidence intervals -----------------------------------------
+
+
+def test_wilson_matches_known_value():
+    # Classic reference: Wilson 95% interval for 8/10 successes ≈ [0.490, 0.943].
+    lo, hi = wsr_score.wilson_interval(8, 10)
+    assert lo == pytest.approx(0.490, abs=1e-3)
+    assert hi == pytest.approx(0.943, abs=1e-3)
+
+
+def test_wilson_narrows_with_larger_n():
+    # Same proportion (0.8), more samples → strictly narrower interval.
+    widths = []
+    for n in (10, 100, 1000):
+        lo, hi = wsr_score.wilson_interval(0.8 * n, n)
+        widths.append(hi - lo)
+    assert widths[0] > widths[1] > widths[2]
+
+
+def test_wilson_clamps_to_unit_interval():
+    for successes, n in [(0, 10), (10, 10), (0, 3), (5, 5)]:
+        lo, hi = wsr_score.wilson_interval(successes, n)
+        assert 0.0 <= lo <= hi <= 1.0
+
+
+def test_wilson_zero_n_is_full_interval():
+    # No samples → the rate is undefined, so we report maximal ignorance.
+    assert wsr_score.wilson_interval(0, 0) == (0.0, 1.0)
+
+
+def test_ci_appears_in_report_and_json(dataset):
+    r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "B"), name="ci")
+    # aggregate CIs are populated pairs bracketing the point estimate
+    # (1e-9 tolerance absorbs float rounding at the p=0 / p=1 boundary).
+    for point, (lo, hi) in [(r.R, r.R_ci), (r.A, r.A_ci)]:
+        assert 0.0 <= lo <= point + 1e-9 and point - 1e-9 <= hi <= 1.0
+    report = wsr_score._format_report(r)
+    assert "95% CI" in report
+    d = r.to_dict()
+    assert d["R_ci"] == [r.R_ci[0], r.R_ci[1]]
+    assert d["A_ci"] == [r.A_ci[0], r.A_ci[1]]
+    assert set(d["R_ci_by_category"]) == set(d["R_by_category"])
+    assert json.dumps(d)  # still serialisable
+
+
 # --- agreement with the canonical inspect_ai scorer ----------------------
 
 
