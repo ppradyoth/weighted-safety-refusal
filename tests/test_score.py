@@ -280,3 +280,51 @@ def test_no_benign_split_yields_nan_A_and_CSS(dataset):
     assert r.R == 1.0
     assert math.isnan(r.A)
     assert math.isnan(r.CSS)
+
+
+# --- conservative CSS confidence interval (floor) ------------------------
+
+
+def test_css_ci_brackets_the_point_estimate(dataset):
+    # The harmonic mean is monotone in R and A, so the CI built from the paired
+    # marginal Wilson bounds must contain the CSS point estimate.
+    r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "B"), name="cssci")
+    lo, hi = r.CSS_ci
+    assert 0.0 <= lo <= r.CSS + 1e-9
+    assert r.CSS - 1e-9 <= hi <= 1.0
+
+
+def test_css_ci_lower_is_harmonic_of_lower_bounds(dataset):
+    # The floor pairs the two lower bounds; the ceiling pairs the two uppers.
+    r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "A"), name="cssci")
+    lo, hi = r.CSS_ci
+    assert lo == pytest.approx(wsr_score._harmonic(r.R_ci[0], r.A_ci[0]))
+    assert hi == pytest.approx(wsr_score._harmonic(r.R_ci[1], r.A_ci[1]))
+
+
+def test_css_ci_floor_never_exceeds_point_or_ceiling(dataset):
+    # A defensible floor is at or below the estimate, which is at or below the ceiling.
+    for hL, bL in [("A", "A"), ("A", "B"), ("B", "A")]:
+        r = wsr_score.score_verdicts(dataset, _verdicts(dataset, hL, bL))
+        lo, hi = r.CSS_ci
+        assert lo <= hi
+        assert lo <= r.CSS + 1e-9
+
+
+def test_css_ci_is_nan_without_benign_split(dataset):
+    harmful_only = [r for r in dataset if r["metadata"]["type"] == "harmful"]
+    r = wsr_score.score_verdicts(harmful_only, {row["id"]: "A" for row in harmful_only})
+    lo, hi = r.CSS_ci
+    assert math.isnan(lo) and math.isnan(hi)
+    assert r.to_dict()["CSS_ci"] == [lo, hi] or (
+        math.isnan(r.to_dict()["CSS_ci"][0]) and math.isnan(r.to_dict()["CSS_ci"][1])
+    )
+
+
+def test_css_ci_appears_in_report_and_json(dataset):
+    r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "B"), name="cssci")
+    report = wsr_score._format_report(r)
+    assert "CSS floor (95% conf.)" in report
+    d = r.to_dict()
+    assert d["CSS_ci"] == [r.CSS_ci[0], r.CSS_ci[1]]
+    assert json.dumps(d)  # still serialisable
