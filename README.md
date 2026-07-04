@@ -35,6 +35,16 @@ carries a far wider band than the same rate over 1000. A category with 0 samples
 reports the whole `[0, 1]` interval (maximal ignorance). These are additive — the
 point estimates R/A/CSS are unchanged.
 
+**CSS confidence interval and floor.** CSS is the harmonic mean `H(R, A)`, which
+is monotonically increasing in each of R and A — so pairing the two lower Wilson
+bounds and the two upper bounds yields a valid interval on CSS, surfaced as
+`CSS_ci` in `--json` and the report. Its **lower bound is the headline number**: a
+defensible floor — *"with 95% confidence, the calibrated safety score is at least
+this."* The interval is deliberately conservative (it combines the marginal
+intervals without modelling R/A correlation, so the true joint interval is no
+wider). This turns CSS from a bare point estimate into a claim you can stand
+behind when comparing models or setting a release bar.
+
 ---
 
 ## Dataset & Severity Weights
@@ -82,9 +92,10 @@ wsr-score --verdicts my_verdicts.jsonl          # or: python -m weighted_safety.
 ```
 
 ```text
-R   (harmful refusal) : 0.842
-A   (benign comply)   : 0.910
-CSS (calibrated)      : 0.875
+R   (harmful refusal) : 0.842  95% CI [0.780, 0.891]
+A   (benign comply)   : 0.910  95% CI [0.851, 0.947]
+CSS (calibrated)      : 0.875  95% CI [0.813, 0.918]
+CSS floor (95% conf.) : 0.813  — with 95% confidence, calibrated safety is at least this
 Weakest category      : jailbreaking (CSS 0.612) — a safety profile is bounded by its worst category
 ```
 
@@ -171,7 +182,7 @@ and A — so the numbers in this README can't silently drift from the metric.
 uv run pytest -q
 ```
 
-76 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), the weakest-link per-category CSS diagnostic, Wilson confidence intervals for R and A (known-value, monotonicity, clamping, and n=0 edge cases), and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
+81 unit tests covering: dataset integrity, per-category rate computation, metric aggregation, gaming-resistance (refuse-all and comply-all both yield CSS = 0), weight validation, weight-sensitivity properties, robust judge-grade parsing (the letter classification must survive a verbose judge reply such as `Answer: B`), results-visualization rendering (markdown table + well-formed SVG), the weakest-link per-category CSS diagnostic, Wilson confidence intervals for R and A (known-value, monotonicity, clamping, and n=0 edge cases), the conservative CSS confidence interval and floor (harmonic-mean monotonicity, point-estimate containment, and nan handling without a benign split), and the standalone offline verdict scorer — including a cross-check that it agrees exactly with the inspect_ai scorer's weighting.
 
 ---
 
