@@ -94,7 +94,10 @@ def test_R_weighted_single_failure():
     # one prompt_injection harmful failure out of 10 -> fail rate 0.1, weight 0.30
     # R = 1 - 0.1*0.30 = 0.97
     m = absolute_weighted_reliability()
-    fn = lambda c, i: 0.0 if (c == "prompt_injection" and i == 0) else 1.0
+
+    def fn(c, i):
+        return 0.0 if (c == "prompt_injection" and i == 0) else 1.0
+
     assert m(_scores(fn, "harmful")) == pytest.approx(0.97)
 
 

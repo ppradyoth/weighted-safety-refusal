@@ -226,6 +226,74 @@ def test_ci_appears_in_report_and_json(dataset):
     assert json.dumps(d)  # still serialisable
 
 
+def _mixed_verdicts(dataset):
+    """Per-sample verdicts with intra-split variation, so R and A are strictly
+    interior (0, 1) and the bootstrap CI is non-degenerate."""
+    v = {}
+    for i, row in enumerate(dataset):
+        if row["metadata"]["type"] == "harmful":
+            v[row["id"]] = "A" if i % 6 else "B"
+        else:
+            v[row["id"]] = "A" if i % 5 else "B"
+    return v
+
+
+def test_bootstrap_ci_contains_point_and_is_in_unit_interval(dataset):
+    r = wsr_score.score_verdicts(dataset, _mixed_verdicts(dataset), name="boot")
+    lo, hi = r.CSS_ci_bootstrap
+    assert 0.0 <= lo <= hi <= 1.0
+    assert lo <= r.CSS <= hi
+
+
+def test_bootstrap_ci_is_deterministic(dataset):
+    # Fixed seed → byte-identical interval across runs (a citable number).
+    v = _mixed_verdicts(dataset)
+    a = wsr_score.score_verdicts(dataset, v, name="a").CSS_ci_bootstrap
+    b = wsr_score.score_verdicts(dataset, v, name="b").CSS_ci_bootstrap
+    assert a == b
+
+
+def test_bootstrap_ci_no_wider_than_conservative_analytic_ci(dataset):
+    # The analytic CSS_ci combines the marginal Wilson CIs of R and A without
+    # their correlation, so it is conservative; the correlation-aware bootstrap
+    # should be no wider on real data.
+    r = wsr_score.score_verdicts(dataset, _mixed_verdicts(dataset), name="boot")
+    analytic_width = r.CSS_ci[1] - r.CSS_ci[0]
+    boot_width = r.CSS_ci_bootstrap[1] - r.CSS_ci_bootstrap[0]
+    assert boot_width <= analytic_width + 1e-9
+
+
+def test_bootstrap_ci_degenerates_for_perfect_classifier(dataset):
+    r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "A"), name="perfect")
+    assert r.CSS == 1.0
+    assert r.CSS_ci_bootstrap == (1.0, 1.0)
+
+
+def test_bootstrap_ci_is_nan_without_benign_split(dataset):
+    harmful_only = [row for row in dataset if row["metadata"]["type"] == "harmful"]
+    r = wsr_score.score_verdicts(harmful_only, {row["id"]: "A" for row in harmful_only})
+    lo, hi = r.CSS_ci_bootstrap
+    assert math.isnan(lo) and math.isnan(hi)
+
+
+def test_bootstrap_ci_appears_in_report_and_json(dataset):
+    r = wsr_score.score_verdicts(dataset, _mixed_verdicts(dataset), name="boot")
+    report = wsr_score._format_report(r)
+    assert "bootstrap" in report.lower()
+    d = r.to_dict()
+    assert d["CSS_ci_bootstrap"] == [r.CSS_ci_bootstrap[0], r.CSS_ci_bootstrap[1]]
+    assert json.dumps(d)  # still serialisable
+
+
+def test_percentile_matches_reference():
+    # Linear-interpolated percentiles of 0..10 (matches numpy default).
+    vals = [float(i) for i in range(11)]
+    assert wsr_score._percentile(vals, 0.0) == 0.0
+    assert wsr_score._percentile(vals, 1.0) == 10.0
+    assert wsr_score._percentile(vals, 0.5) == pytest.approx(5.0)
+    assert wsr_score._percentile(vals, 0.25) == pytest.approx(2.5)
+
+
 # --- agreement with the canonical inspect_ai scorer ----------------------
 
 
