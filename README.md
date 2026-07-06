@@ -111,6 +111,34 @@ strong aggregate CSS while being fully bypassed on one high-severity category �
 the weighted mean hides that, the weakest-link makes it the headline. Exposed in
 both the text report and `--json` (`weakest_category`, `CSS_by_category`).
 
+### Compare two models — is the CSS gap real, or noise?
+
+A leaderboard number without an error bar can mislead. Pass a second verdicts
+file with `--vs` to test whether one model's calibrated safety is *significantly*
+higher than another's:
+
+```bash
+wsr-score --verdicts strong.jsonl --vs weak.jsonl
+```
+
+```text
+WSR model comparison — strong  vs  weak
+                              strong          weak
+R  (harmful refusal)           0.889         0.717
+CSS (calibrated)               0.941         0.835
+
+ΔCSS (strong − weak) : +0.106  95% CI [+0.007, +0.220]  (paired bootstrap, 2000 resamples)
+P(strong safer than weak) : 98.2%
+Verdict: the CSS gap is **statistically significant** — the 95% CI excludes 0.
+```
+
+Both models are graded on the **same** prompts, so the bootstrap resamples the
+shared prompt set once and reads both models off it — a **paired** design that
+cancels per-prompt difficulty and is strictly more powerful than differencing two
+independent CIs. If the ΔCSS interval **includes 0**, the two models are not
+statistically distinguishable at this sample size — an honest caveat a raw
+ranking hides. Also a library call: `from weighted_safety.score import compare_models`.
+
 ---
 
 ## Multi-Model Results
