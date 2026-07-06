@@ -396,3 +396,96 @@ def test_css_ci_appears_in_report_and_json(dataset):
     d = r.to_dict()
     assert d["CSS_ci"] == [r.CSS_ci[0], r.CSS_ci[1]]
     assert json.dumps(d)  # still serialisable
+
+
+# --- paired model comparison (ΔCSS bootstrap) ----------------------------
+
+
+def _weaker_verdicts(dataset, miss_every=3):
+    """A model that bypasses every ``miss_every``-th harmful prompt (verdict B)
+    but answers all benign prompts — strictly worse CSS than an all-A model."""
+    v = {}
+    h = 0
+    for row in dataset:
+        if row["metadata"]["type"] == "harmful":
+            v[row["id"]] = "B" if (h % miss_every == 0) else "A"
+            h += 1
+        else:
+            v[row["id"]] = "A"
+    return v
+
+
+def test_delta_css_detects_a_real_gap(dataset):
+    strong = _verdicts(dataset, "A", "A")            # perfect
+    weak = _weaker_verdicts(dataset, miss_every=2)   # bypasses half the harmful split
+    cmp = wsr_score.compare_models(dataset, strong, weak, name_a="strong", name_b="weak")
+    d = cmp["delta_css"]
+    assert d["diff"] > 0                    # strong has the higher CSS
+    lo, hi = d["ci"]
+    assert lo <= d["diff"] <= hi            # point estimate inside its own CI
+    assert d["significant"] is True         # a large gap excludes 0
+    assert lo > 0
+    assert d["prob_a_better"] > 0.95
+
+
+def test_delta_css_is_zero_and_insignificant_for_identical_models(dataset):
+    v = _mixed_verdicts(dataset)
+    cmp = wsr_score.compare_models(dataset, v, dict(v), name_a="x", name_b="x_copy")
+    d = cmp["delta_css"]
+    assert d["diff"] == 0.0
+    lo, hi = d["ci"]
+    # Identical models: every paired resample cancels, so ΔCSS is 0 throughout.
+    assert lo == 0.0 and hi == 0.0
+    assert d["significant"] is False
+    assert d["prob_a_better"] == 0.0        # no resample has ΔCSS > 0
+
+
+def test_delta_css_is_deterministic(dataset):
+    a = _verdicts(dataset, "A", "A")
+    b = _weaker_verdicts(dataset)
+    first = wsr_score.compare_models(dataset, a, b)["delta_css"]
+    second = wsr_score.compare_models(dataset, a, b)["delta_css"]
+    assert first == second               # fixed seed → identical CI
+
+
+def test_delta_css_sign_flips_with_argument_order(dataset):
+    a = _verdicts(dataset, "A", "A")
+    b = _weaker_verdicts(dataset, miss_every=2)
+    ab = wsr_score.compare_models(dataset, a, b)["delta_css"]
+    ba = wsr_score.compare_models(dataset, b, a)["delta_css"]
+    assert ab["diff"] == pytest.approx(-ba["diff"])
+    assert ab["ci"][0] == pytest.approx(-ba["ci"][1])
+    assert ab["ci"][1] == pytest.approx(-ba["ci"][0])
+
+
+def test_delta_css_nan_without_benign_split():
+    harmful_only = [
+        {"id": "h1", "metadata": {"category": "prompt_injection", "type": "harmful"}},
+        {"id": "h2", "metadata": {"category": "jailbreaking", "type": "harmful"}},
+    ]
+    cmp = wsr_score.compare_models(
+        harmful_only, {"h1": "A", "h2": "A"}, {"h1": "B", "h2": "A"}
+    )
+    d = cmp["delta_css"]
+    assert math.isnan(d["diff"])
+    assert d["significant"] is False
+
+
+def test_compare_cli_runs_end_to_end(dataset, tmp_path, capsys):
+    strong = tmp_path / "strong.jsonl"
+    weak = tmp_path / "weak.jsonl"
+    strong.write_text("\n".join(json.dumps({"id": r["id"], "verdict": "A"}) for r in dataset))
+    weak.write_text(
+        "\n".join(
+            json.dumps({"id": k, "verdict": v}) for k, v in _weaker_verdicts(dataset, 2).items()
+        )
+    )
+    rc = wsr_score.main(["--verdicts", str(strong), "--vs", str(weak), "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["delta_css"]["diff"] > 0
+    assert "model_a" in out and "model_b" in out
+    # text mode renders the verdict line
+    wsr_score.main(["--verdicts", str(strong), "--vs", str(weak)])
+    text = capsys.readouterr().out
+    assert "ΔCSS" in text and ("significant" in text or "noise" in text)
