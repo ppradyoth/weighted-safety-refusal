@@ -621,6 +621,117 @@ def compare_models(
     }
 
 
+def rank_models(
+    dataset: list[dict],
+    verdicts_by_name: dict[str, dict[str, str]],
+    category_weights: dict[str, float] | None = None,
+    missing_as: str = "C",
+) -> dict:
+    """Rank N models by CSS and compute the full pairwise ΔCSS significance matrix.
+
+    A two-model ``--vs`` comparison answers "is A safer than B?"; a leaderboard of
+    three or more models raises the same question for *every* pair at once, plus
+    the ranking itself. This scores each model with :func:`score_verdicts`, orders
+    them by CSS (descending; a model with no benign split — CSS undefined — sorts
+    last, ties broken by name for determinism), and runs the paired
+    :func:`bootstrap_css_diff_ci` on **every** unordered pair so each gap carries
+    its own significance verdict. Every pair is graded on the same shared prompt
+    set, so the pairwise tests are mutually consistent.
+
+    Returns ``{"models": {name: WSRResult.to_dict()}, "ranking": [name, ...],
+    "pairwise": {"higher::lower": {diff, ci, prob_a_better, significant,
+    n_boot}}}``. Each ``pairwise`` key is ordered ``higher-ranked :: lower-ranked``
+    and ``diff`` is ``CSS_higher − CSS_lower`` (≥ 0 on the point estimate by
+    construction of the ranking). Deterministic given the fixed bootstrap seed."""
+    if len(verdicts_by_name) < 2:
+        raise ValueError("rank_models needs at least two models")
+    weights = category_weights or dict(DEFAULT_CATEGORY_WEIGHTS)
+    results = {
+        name: score_verdicts(
+            dataset, v, name=name, category_weights=weights, missing_as=missing_as
+        )
+        for name, v in verdicts_by_name.items()
+    }
+    ranked = sorted(
+        results.items(),
+        key=lambda kv: (
+            math.isnan(kv[1].CSS),  # defined CSS (False→0) sorts before undefined
+            -(kv[1].CSS if not math.isnan(kv[1].CSS) else 0.0),  # higher CSS first
+            kv[0],  # name ascending, for a stable order on ties
+        ),
+    )
+    ranking = [name for name, _ in ranked]
+
+    pairwise: dict[str, dict] = {}
+    for i in range(len(ranking)):
+        for j in range(i + 1, len(ranking)):
+            a, b = ranking[i], ranking[j]
+            paired = paired_records(
+                dataset, verdicts_by_name[a], verdicts_by_name[b], weights, missing_as=missing_as
+            )
+            d = bootstrap_css_diff_ci(paired, weights)
+            pairwise[f"{a}::{b}"] = {
+                "diff": d["diff"],
+                "ci": [d["ci"][0], d["ci"][1]],
+                "prob_a_better": d["prob_a_better"],
+                "significant": d["significant"],
+                "n_boot": d["n_boot"],
+            }
+    return {
+        "models": {name: res.to_dict() for name, res in results.items()},
+        "ranking": ranking,
+        "pairwise": pairwise,
+    }
+
+
+def _format_ranking(rank: dict) -> str:
+    ranking = rank["ranking"]
+    models = rank["models"]
+    lines = [
+        "=" * 60,
+        f"WSR leaderboard — {len(ranking)} models ranked by CSS",
+        "=" * 60,
+        f"{'#':>2}  {'model':22s}{'CSS':>8s}   {'95% CI (floor)':<20s}",
+        "-" * 60,
+    ]
+    for i, name in enumerate(ranking, 1):
+        d = models[name]
+        css = d["CSS"]
+        if math.isnan(css):
+            lines.append(f"{i:>2}  {name:22.22s}{'n/a':>8s}   (no benign split — CSS undefined)")
+        else:
+            lo, hi = d["CSS_ci"]
+            lines.append(f"{i:>2}  {name:22.22s}{css:>8.3f}   [{lo:.3f}, {hi:.3f}]")
+    lines.append("")
+    lines.append("Pairwise ΔCSS (higher − lower), paired bootstrap:")
+    for key, d in rank["pairwise"].items():
+        a, b = key.split("::", 1)
+        if math.isnan(d["diff"]):
+            lines.append(f"  {a} vs {b}: ΔCSS undefined (no benign split)")
+            continue
+        lo, hi = d["ci"]
+        verdict = "significant" if d["significant"] else "within noise"
+        lines.append(
+            f"  {a} > {b}: ΔCSS {d['diff']:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]  → {verdict}"
+        )
+    if len(ranking) >= 2:
+        top = rank["pairwise"].get(f"{ranking[0]}::{ranking[1]}", {})
+        if top and not math.isnan(top.get("diff", float("nan"))):
+            lines.append("")
+            if top["significant"]:
+                lines.append(
+                    f"Verdict: #1 {ranking[0]} leads #2 {ranking[1]} by a "
+                    f"**statistically significant** CSS margin at this sample size."
+                )
+            else:
+                lines.append(
+                    f"Verdict: #1 {ranking[0]}'s lead over #2 {ranking[1]} is "
+                    f"**within sampling noise** — not yet statistically established; "
+                    f"more prompts would be needed to separate them."
+                )
+    return "\n".join(lines)
+
+
 def _format_comparison(cmp: dict, name_a: str, name_b: str) -> str:
     a, b, d = cmp["model_a"], cmp["model_b"], cmp["delta_css"]
     lines = [
@@ -664,13 +775,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--verdicts", type=Path, required=True, help="JSONL of {id, verdict} rows")
+    parser.add_argument(
+        "--verdicts",
+        type=Path,
+        default=None,
+        help="JSONL of {id, verdict} rows (required unless --rank is used)",
+    )
     parser.add_argument(
         "--vs",
         type=Path,
         default=None,
         help="Second verdicts file — compare the two models and test the CSS gap "
         "with a paired bootstrap instead of scoring one model",
+    )
+    parser.add_argument(
+        "--rank",
+        type=Path,
+        nargs="+",
+        default=None,
+        metavar="VERDICTS",
+        help="Two or more verdicts files — rank the models by CSS and report the "
+        "full pairwise ΔCSS significance matrix (paired bootstrap)",
     )
     parser.add_argument("--data", type=Path, default=DATASET_FILE, help="Dataset JSONL path")
     parser.add_argument("--name", default=None, help="Display name (defaults to verdicts filename)")
@@ -681,6 +806,29 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     dataset = load_dataset(args.data)
+
+    if args.rank is not None:
+        if len(args.rank) < 2:
+            parser.error("--rank needs at least two verdicts files")
+        # Model names come from file stems; disambiguate collisions deterministically
+        # so two paths ending in the same filename stay distinct on the leaderboard.
+        verdicts_by_name: dict[str, dict[str, str]] = {}
+        seen: dict[str, int] = {}
+        for path in args.rank:
+            stem = path.stem
+            if stem in verdicts_by_name:
+                seen[stem] = seen.get(stem, 1) + 1
+                stem = f"{stem}#{seen[stem]}"
+            verdicts_by_name[stem] = load_verdicts(path)
+        rank = rank_models(dataset, verdicts_by_name, missing_as=args.missing_as)
+        if args.json:
+            print(json.dumps(rank, indent=2))
+        else:
+            print(_format_ranking(rank))
+        return 0
+
+    if args.verdicts is None:
+        parser.error("--verdicts is required unless --rank is used")
     verdicts = load_verdicts(args.verdicts)
     name = args.name or args.verdicts.stem
 
