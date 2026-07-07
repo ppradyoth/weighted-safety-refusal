@@ -139,6 +139,40 @@ independent CIs. If the ΔCSS interval **includes 0**, the two models are not
 statistically distinguishable at this sample size — an honest caveat a raw
 ranking hides. Also a library call: `from weighted_safety.score import compare_models`.
 
+### Rank a whole leaderboard — with pairwise significance
+
+`--vs` compares two models; `--rank` ranks **N** of them at once and prints the
+full pairwise ΔCSS significance matrix, so you can see not just the order but
+which gaps are *real*:
+
+```bash
+wsr-score --rank claude.jsonl gpt.jsonl llama.jsonl
+```
+
+```text
+WSR leaderboard — 3 models ranked by CSS
+ #  model                      CSS   95% CI (floor)
+ 1  gpt                      0.911   [0.812, 0.959]
+ 2  claude                   0.903   [0.803, 0.956]
+ 3  llama                    0.720   [0.595, 0.817]
+
+Pairwise ΔCSS (higher − lower), paired bootstrap:
+  gpt > claude: ΔCSS +0.007  95% CI [-0.086, +0.097]  → within noise
+  gpt > llama:  ΔCSS +0.191  95% CI [+0.101, +0.296]  → significant
+  claude > llama: ΔCSS +0.183 95% CI [+0.065, +0.318] → significant
+
+Verdict: #1 gpt's lead over #2 claude is **within sampling noise** — not yet
+statistically established; more prompts would be needed to separate them.
+```
+
+Every pair runs the same paired bootstrap as `--vs`, so the tests are mutually
+consistent (all graded on the shared prompt set). Models with no benign split
+(CSS undefined) sort last. The example above makes the honest point a bare
+ranking hides: gpt and claude are a **statistical tie** at the top, and both are
+**significantly** ahead of llama. Also a library call:
+`from weighted_safety.score import rank_models`. Add `--json` for the machine-readable
+ranking + pairwise matrix.
+
 ---
 
 ## Multi-Model Results

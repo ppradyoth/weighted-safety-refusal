@@ -489,3 +489,106 @@ def test_compare_cli_runs_end_to_end(dataset, tmp_path, capsys):
     wsr_score.main(["--verdicts", str(strong), "--vs", str(weak)])
     text = capsys.readouterr().out
     assert "ΔCSS" in text and ("significant" in text or "noise" in text)
+
+
+# --- N-model ranking -----------------------------------------------------
+
+
+def test_rank_orders_models_by_css_descending(dataset):
+    strong = _verdicts(dataset, "A", "A")            # perfect CSS
+    mid = _weaker_verdicts(dataset, miss_every=4)    # bypasses 1/4 of harmful
+    weak = _weaker_verdicts(dataset, miss_every=2)   # bypasses 1/2 of harmful
+    rank = wsr_score.rank_models(
+        dataset, {"strong": strong, "mid": mid, "weak": weak}
+    )
+    assert rank["ranking"] == ["strong", "mid", "weak"]
+    css = [rank["models"][n]["CSS"] for n in rank["ranking"]]
+    assert css == sorted(css, reverse=True)          # monotone non-increasing
+
+
+def test_rank_pairwise_matrix_is_complete_and_ordered(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    mid = _weaker_verdicts(dataset, miss_every=4)
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    rank = wsr_score.rank_models(
+        dataset, {"strong": strong, "mid": mid, "weak": weak}
+    )
+    # C(3,2) = 3 unordered pairs, each keyed higher::lower
+    assert set(rank["pairwise"]) == {"strong::mid", "strong::weak", "mid::weak"}
+    for d in rank["pairwise"].values():
+        assert d["diff"] >= 0                         # higher-ranked minus lower-ranked
+        lo, hi = d["ci"]
+        assert lo <= d["diff"] <= hi
+    # the widest gap (top vs bottom) is significant and beats the adjacent gaps
+    assert rank["pairwise"]["strong::weak"]["significant"] is True
+
+
+def test_rank_is_deterministic(dataset):
+    v = {"a": _verdicts(dataset, "A", "A"), "b": _weaker_verdicts(dataset)}
+    first = wsr_score.rank_models(dataset, v)
+    second = wsr_score.rank_models(dataset, v)
+    assert first == second                            # fixed seed → identical result
+
+
+def test_rank_handles_all_undefined_css_deterministically():
+    # CSS is undefined (nan) when the *dataset* has no benign split — a property
+    # shared by every model, so all CSS values are nan together. The ranking must
+    # still be total and deterministic: fall back to name order, no crash.
+    harmful_only = [
+        {"id": "h1", "metadata": {"category": "prompt_injection", "type": "harmful"}},
+        {"id": "h2", "metadata": {"category": "jailbreaking", "type": "harmful"}},
+    ]
+    rank = wsr_score.rank_models(
+        harmful_only,
+        {"zeta": {"h1": "A", "h2": "A"}, "alpha": {"h1": "A", "h2": "B"}},
+    )
+    assert rank["ranking"] == ["alpha", "zeta"]        # name-ordered on the nan tie
+    assert all(math.isnan(m["CSS"]) for m in rank["models"].values())
+
+
+def test_rank_requires_at_least_two_models(dataset):
+    with pytest.raises(ValueError):
+        wsr_score.rank_models(dataset, {"solo": _verdicts(dataset, "A", "A")})
+
+
+def test_rank_cli_runs_end_to_end(dataset, tmp_path, capsys):
+    def _write(name, verdicts):
+        p = tmp_path / name
+        p.write_text("\n".join(json.dumps({"id": k, "verdict": v}) for k, v in verdicts.items()))
+        return p
+
+    strong = _write("strong.jsonl", _verdicts(dataset, "A", "A"))
+    weak = _write("weak.jsonl", _weaker_verdicts(dataset, 2))
+    rc = wsr_score.main(["--rank", str(strong), str(weak), "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ranking"] == ["strong", "weak"]
+    assert "strong::weak" in out["pairwise"]
+    # text mode renders the leaderboard + verdict
+    wsr_score.main(["--rank", str(strong), str(weak)])
+    text = capsys.readouterr().out
+    assert "leaderboard" in text and "Pairwise" in text
+
+    # a single file is a usage error
+    with pytest.raises(SystemExit):
+        wsr_score.main(["--rank", str(strong)])
+
+
+def test_rank_cli_disambiguates_duplicate_stems(dataset, tmp_path, capsys):
+    # Two different paths whose filenames share a stem must stay distinct models.
+    d1, d2 = tmp_path / "m1", tmp_path / "m2"
+    d1.mkdir()
+    d2.mkdir()
+    (d1 / "model.jsonl").write_text(
+        "\n".join(json.dumps({"id": r["id"], "verdict": "A"}) for r in dataset)
+    )
+    (d2 / "model.jsonl").write_text(
+        "\n".join(
+            json.dumps({"id": k, "verdict": v}) for k, v in _weaker_verdicts(dataset, 2).items()
+        )
+    )
+    rc = wsr_score.main(["--rank", str(d1 / "model.jsonl"), str(d2 / "model.jsonl"), "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out["ranking"]) == {"model", "model#2"}
+    assert len(out["models"]) == 2
