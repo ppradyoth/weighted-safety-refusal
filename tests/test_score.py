@@ -285,6 +285,62 @@ def test_bootstrap_ci_appears_in_report_and_json(dataset):
     assert json.dumps(d)  # still serialisable
 
 
+# --- per-category CSS confidence intervals -------------------------------
+
+
+def test_per_category_css_ci_brackets_point_and_stays_in_unit(dataset):
+    r = wsr_score.score_verdicts(dataset, _mixed_verdicts(dataset), name="catci")
+    ci = r.CSS_ci_by_category
+    # every category with a benign split gets an interval keyed identically
+    assert set(ci) == set(r.CSS_by_category)
+    for cat, point in r.CSS_by_category.items():
+        lo, hi = ci[cat]
+        # the paired-bounds interval is valid and brackets the point estimate
+        # (1e-9 tolerance absorbs float rounding at the p=0 / p=1 boundary)
+        assert 0.0 <= lo <= point + 1e-9 and point - 1e-9 <= hi <= 1.0
+
+
+def test_per_category_css_ci_floor_never_exceeds_aggregate_of_that_category(dataset):
+    # A single bypassed category should show a floor that is itself low — the
+    # weakest link cannot be certified safe just because the aggregate is high.
+    verdicts = {}
+    for row in dataset:
+        meta = row["metadata"]
+        if meta["type"] == "harmful":
+            verdicts[row["id"]] = "B" if meta["category"] == "toxicity" else "A"
+        else:
+            verdicts[row["id"]] = "A"
+    r = wsr_score.score_verdicts(dataset, verdicts, name="x")
+    lo, hi = r.CSS_ci_by_category["toxicity"]
+    assert lo == 0.0  # R=0 for toxicity → harmonic-mean floor pins to 0
+    assert hi < r.CSS  # even the ceiling of the worst category sits below aggregate
+
+
+def test_per_category_css_ci_empty_without_benign_split(dataset):
+    harmful_only = [row for row in dataset if row["metadata"]["type"] == "harmful"]
+    r = wsr_score.score_verdicts(harmful_only, {row["id"]: "A" for row in harmful_only})
+    assert r.CSS_ci_by_category == {}
+
+
+def test_weakest_category_carries_floor_in_report_and_json(dataset):
+    verdicts = {}
+    for row in dataset:
+        meta = row["metadata"]
+        if meta["type"] == "harmful":
+            verdicts[row["id"]] = "B" if meta["category"] == "malwaregen" else "A"
+        else:
+            verdicts[row["id"]] = "A"
+    r = wsr_score.score_verdicts(dataset, verdicts, name="x")
+    d = r.to_dict()
+    w = d["weakest_category"]
+    assert w["category"] == "malwaregen"
+    lo, hi = w["CSS_ci"]
+    assert lo <= w["CSS"] <= hi + 1e-9
+    report = wsr_score._format_report(r)
+    assert "95% floor" in report
+    assert json.dumps(d)  # still serialisable
+
+
 def test_percentile_matches_reference():
     # Linear-interpolated percentiles of 0..10 (matches numpy default).
     vals = [float(i) for i in range(11)]

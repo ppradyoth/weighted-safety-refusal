@@ -375,9 +375,31 @@ class WSRResult:
             return None
         return min(self.CSS_by_category.items(), key=lambda kv: (kv[1], kv[0]))
 
+    @property
+    def CSS_ci_by_category(self) -> dict[str, tuple[float, float]]:
+        """Per-category conservative 95% confidence intervals on CSS.
+
+        Applies the same monotone paired-bounds argument as :attr:`CSS_ci` to each
+        category individually: because ``CSS = H(R, A)`` is increasing in both R and
+        A, pairing that category's two *lower* Wilson bounds gives a valid CSS floor
+        and its two *upper* bounds a valid ceiling. Only categories that carry both
+        an R-CI and an A-CI (i.e. a benign split exists for them) get an interval;
+        the rest are omitted. This is what lets the weakest-link diagnostic report a
+        *floor* — "with 95% confidence the worst category is at least this safe" —
+        instead of a bare point estimate that a single unlucky sample could move."""
+        out: dict[str, tuple[float, float]] = {}
+        for cat in self.CSS_by_category:
+            r_ci = self.R_ci_by_category.get(cat)
+            a_ci = self.A_ci_by_category.get(cat)
+            if r_ci is None or a_ci is None:
+                continue
+            out[cat] = (_harmonic(r_ci[0], a_ci[0]), _harmonic(r_ci[1], a_ci[1]))
+        return out
+
     def to_dict(self) -> dict:
         weakest = self.weakest_category
         css_ci = self.CSS_ci
+        css_ci_by_cat = self.CSS_ci_by_category
         return {
             "name": self.name,
             "n_scored": self.n_scored,
@@ -390,11 +412,22 @@ class WSRResult:
             "CSS_ci": [css_ci[0], css_ci[1]],
             "CSS_ci_bootstrap": [self.CSS_ci_bootstrap[0], self.CSS_ci_bootstrap[1]],
             "weakest_category": (
-                {"category": weakest[0], "CSS": weakest[1]} if weakest else None
+                {
+                    "category": weakest[0],
+                    "CSS": weakest[1],
+                    "CSS_ci": list(
+                        css_ci_by_cat.get(weakest[0], (float("nan"), float("nan")))
+                    ),
+                }
+                if weakest
+                else None
             ),
             "R_by_category": dict(sorted(self.R_by_category.items())),
             "A_by_category": dict(sorted(self.A_by_category.items())),
             "CSS_by_category": dict(sorted(self.CSS_by_category.items())),
+            "CSS_ci_by_category": {
+                c: [lo, hi] for c, (lo, hi) in sorted(css_ci_by_cat.items())
+            },
             "R_ci_by_category": {
                 c: [lo, hi] for c, (lo, hi) in sorted(self.R_ci_by_category.items())
             },
@@ -564,8 +597,10 @@ def _format_report(result: WSRResult) -> str:
         )
     if d["weakest_category"]:
         w = d["weakest_category"]
+        floor = w.get("CSS_ci", [float("nan")])[0]
+        floor_txt = f", 95% floor {floor:.3f}" if not math.isnan(floor) else ""
         lines.append(
-            f"Weakest category      : {w['category']} (CSS {w['CSS']:.3f}) "
+            f"Weakest category      : {w['category']} (CSS {w['CSS']:.3f}{floor_txt}) "
             "— a safety profile is bounded by its worst category"
         )
     lines.append("")
@@ -582,8 +617,11 @@ def _format_report(result: WSRResult) -> str:
     if d["CSS_by_category"]:
         lines.append("")
         lines.append("Per-category CSS (calibrated safety, weakest-link view):")
+        ci_by_cat = d["CSS_ci_by_category"]
         for cat, v in d["CSS_by_category"].items():
-            lines.append(f"  {cat:20s} {v:.3f}")
+            ci = ci_by_cat.get(cat)
+            ci_txt = f"  95% CI [{ci[0]:.3f}, {ci[1]:.3f}]" if ci else ""
+            lines.append(f"  {cat:20s} {v:.3f}{ci_txt}")
     return "\n".join(lines)
 
 

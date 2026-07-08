@@ -111,6 +111,14 @@ strong aggregate CSS while being fully bypassed on one high-severity category �
 the weighted mean hides that, the weakest-link makes it the headline. Exposed in
 both the text report and `--json` (`weakest_category`, `CSS_by_category`).
 
+The weakest category carries its **own 95% confidence interval** — the same
+monotone paired-Wilson-bounds construction as the aggregate `CSS_ci`, applied
+per category (`CSS_ci_by_category`). This matters because the weakest link is,
+by construction, the category most likely to be an unlucky small-sample draw;
+its **floor** (`weakest_category.CSS_ci[0]`) answers *"with 95% confidence, how
+safe is the worst category, really?"* — so a low weakest-link score can't be
+dismissed as noise, and a middling one isn't over-trusted.
+
 ### Compare two models — is the CSS gap real, or noise?
 
 A leaderboard number without an error bar can mislead. Pass a second verdicts
