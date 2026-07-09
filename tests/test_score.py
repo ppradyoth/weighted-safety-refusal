@@ -547,6 +547,115 @@ def test_compare_cli_runs_end_to_end(dataset, tmp_path, capsys):
     assert "ΔCSS" in text and ("significant" in text or "noise" in text)
 
 
+# --- ΔCSS decomposition (ΔR / ΔA drivers) --------------------------------
+
+
+def _over_refusing_verdicts(dataset, miss_every=3):
+    """A model that refuses every harmful prompt (verdict A) but *over-refuses*
+    every ``miss_every``-th benign prompt (verdict B) — same R as an all-A model,
+    strictly lower A, so its CSS gap is driven entirely by the benign axis."""
+    v = {}
+    b = 0
+    for row in dataset:
+        if row["metadata"]["type"] == "benign":
+            v[row["id"]] = "B" if (b % miss_every == 0) else "A"
+            b += 1
+        else:
+            v[row["id"]] = "A"
+    return v
+
+
+def test_delta_components_present_and_bracket_point(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    cmp = wsr_score.compare_models(dataset, strong, weak, name_a="strong", name_b="weak")
+    comps = cmp["delta_components"]
+    assert set(comps) == {"R", "A"}
+    for comp in comps.values():
+        lo, hi = comp["ci"]
+        assert lo <= comp["diff"] <= hi          # point estimate inside its own CI
+
+
+def test_delta_component_points_match_scored_marginals(dataset):
+    a = _verdicts(dataset, "A", "A")
+    b = _weaker_verdicts(dataset, miss_every=2)
+    cmp = wsr_score.compare_models(dataset, a, b)
+    # The ΔR / ΔA point estimates must equal the difference of the two models'
+    # scored R / A marginals — the bootstrap only adds an interval around them.
+    assert cmp["delta_components"]["R"]["diff"] == pytest.approx(
+        cmp["model_a"]["R"] - cmp["model_b"]["R"]
+    )
+    assert cmp["delta_components"]["A"]["diff"] == pytest.approx(
+        cmp["model_a"]["A"] - cmp["model_b"]["A"]
+    )
+
+
+def test_delta_decomposition_isolates_the_refusal_axis(dataset):
+    # Two models that answer every benign prompt but differ on the harmful split:
+    # the CSS gap must attribute to ΔR, with ΔA exactly zero (benign is identical).
+    strong = _verdicts(dataset, "A", "A")
+    weak = _weaker_verdicts(dataset, miss_every=2)   # weakens harmful only
+    comps = wsr_score.compare_models(dataset, strong, weak)["delta_components"]
+    assert comps["R"]["diff"] > 0 and comps["R"]["significant"] is True
+    assert comps["A"]["diff"] == 0.0 and comps["A"]["significant"] is False
+
+
+def test_delta_decomposition_isolates_the_benign_axis(dataset):
+    # Mirror image: identical on harmful, but B over-refuses benign prompts. Now
+    # the gap attributes to ΔA, with ΔR exactly zero (harmful is identical).
+    strong = _verdicts(dataset, "A", "A")
+    over = _over_refusing_verdicts(dataset, miss_every=2)   # weakens benign only
+    comps = wsr_score.compare_models(dataset, strong, over)["delta_components"]
+    assert comps["A"]["diff"] > 0 and comps["A"]["significant"] is True
+    assert comps["R"]["diff"] == 0.0 and comps["R"]["significant"] is False
+
+
+def test_delta_r_is_defined_without_a_benign_split():
+    # ΔR needs only the harmful split, so it stays defined where ΔA / ΔCSS are nan.
+    harmful_only = [
+        {"id": "h1", "metadata": {"category": "prompt_injection", "type": "harmful"}},
+        {"id": "h2", "metadata": {"category": "jailbreaking", "type": "harmful"}},
+    ]
+    paired = wsr_score.paired_records(
+        harmful_only, {"h1": "A", "h2": "A"}, {"h1": "B", "h2": "A"}, DEFAULT_CATEGORY_WEIGHTS
+    )
+    d_r = wsr_score.bootstrap_metric_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS, "R")
+    d_a = wsr_score.bootstrap_metric_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS, "A")
+    assert not math.isnan(d_r["diff"]) and d_r["diff"] > 0     # R gap is real
+    assert math.isnan(d_a["diff"])                             # A undefined
+
+
+def test_bootstrap_metric_diff_rejects_unknown_metric(dataset):
+    paired = wsr_score.paired_records(
+        dataset, _verdicts(dataset, "A", "A"), _weaker_verdicts(dataset),
+        DEFAULT_CATEGORY_WEIGHTS,
+    )
+    with pytest.raises(ValueError):
+        wsr_score.bootstrap_metric_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS, "F1")
+
+
+def test_css_diff_wrapper_matches_generalized_metric(dataset):
+    # bootstrap_css_diff_ci must stay a faithful thin wrapper over the metric="CSS"
+    # path (same seed → identical numbers), and must not leak the "metric" key.
+    paired = wsr_score.paired_records(
+        dataset, _verdicts(dataset, "A", "A"), _weaker_verdicts(dataset, 2),
+        DEFAULT_CATEGORY_WEIGHTS,
+    )
+    css = wsr_score.bootstrap_css_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS)
+    gen = wsr_score.bootstrap_metric_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS, "CSS")
+    assert "metric" not in css
+    assert css["diff"] == gen["diff"] and css["ci"] == gen["ci"]
+    assert css["significant"] == gen["significant"]
+
+
+def test_delta_components_appear_in_comparison_report(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    cmp = wsr_score.compare_models(dataset, strong, weak, name_a="strong", name_b="weak")
+    text = wsr_score._format_comparison(cmp, "strong", "weak")
+    assert "Decomposition" in text and "ΔR" in text and "ΔA" in text
+
+
 # --- N-model ranking -----------------------------------------------------
 
 

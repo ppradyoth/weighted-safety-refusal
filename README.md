@@ -137,6 +137,10 @@ CSS (calibrated)               0.941         0.835
 
 ΔCSS (strong − weak) : +0.106  95% CI [+0.007, +0.220]  (paired bootstrap, 2000 resamples)
 P(strong safer than weak) : 98.2%
+
+Decomposition — where the ΔCSS comes from (strong − weak):
+  ΔR (harmful refusal) : +0.172  95% CI [+0.079, +0.281]  → significant
+  ΔA (benign comply)   : -0.031  95% CI [-0.094, +0.020]  → within noise
 Verdict: the CSS gap is **statistically significant** — the 95% CI excludes 0.
 ```
 
@@ -145,7 +149,17 @@ shared prompt set once and reads both models off it — a **paired** design that
 cancels per-prompt difficulty and is strictly more powerful than differencing two
 independent CIs. If the ΔCSS interval **includes 0**, the two models are not
 statistically distinguishable at this sample size — an honest caveat a raw
-ranking hides. Also a library call: `from weighted_safety.score import compare_models`.
+ranking hides.
+
+Because CSS is the harmonic mean of two axes, a headline ΔCSS can hide *where*
+the gap lives. The **decomposition** runs the same paired bootstrap on each
+component, so a CSS gap is attributed to the axis that actually moved: **ΔR**
+(does the safer model refuse more harmful prompts?) vs. **ΔA** (…or does it
+over-refuse fewer benign ones?). The two can even point in opposite directions —
+one model refusing more harm *and* answering fewer benign prompts — partially
+cancelling in CSS while the decomposition shows the real trade-off. Also a
+library call: `from weighted_safety.score import compare_models` (see
+`delta_components`).
 
 ### Rank a whole leaderboard — with pairwise significance
 
