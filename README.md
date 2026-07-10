@@ -164,8 +164,9 @@ library call: `from weighted_safety.score import compare_models` (see
 ### Rank a whole leaderboard — with pairwise significance
 
 `--vs` compares two models; `--rank` ranks **N** of them at once and prints the
-full pairwise ΔCSS significance matrix, so you can see not just the order but
-which gaps are *real*:
+full pairwise ΔCSS significance matrix — with a **Holm–Bonferroni family-wise
+error correction** across all N(N−1)/2 tests — so you can see not just the order
+but which gaps are *real* after accounting for how many pairs were tested:
 
 ```bash
 wsr-score --rank claude.jsonl gpt.jsonl llama.jsonl
@@ -178,22 +179,27 @@ WSR leaderboard — 3 models ranked by CSS
  2  claude                   0.903   [0.803, 0.956]
  3  llama                    0.720   [0.595, 0.817]
 
-Pairwise ΔCSS (higher − lower), paired bootstrap:
-  gpt > claude: ΔCSS +0.007  95% CI [-0.086, +0.097]  → within noise
-  gpt > llama:  ΔCSS +0.191  95% CI [+0.101, +0.296]  → significant
-  claude > llama: ΔCSS +0.183 95% CI [+0.065, +0.318] → significant
+Pairwise ΔCSS (higher − lower), paired bootstrap — holm-bonferroni FWER control over 3 tests (α = 0.05):
+  gpt > claude: ΔCSS +0.007  95% CI [-0.086, +0.097]  p_adj 0.881  → within noise
+  gpt > llama:  ΔCSS +0.191  95% CI [+0.101, +0.296]  p_adj 0.003  → significant
+  claude > llama: ΔCSS +0.183 95% CI [+0.065, +0.318] p_adj 0.003  → significant
 
 Verdict: #1 gpt's lead over #2 claude is **within sampling noise** — not yet
 statistically established; more prompts would be needed to separate them.
 ```
 
 Every pair runs the same paired bootstrap as `--vs`, so the tests are mutually
-consistent (all graded on the shared prompt set). Models with no benign split
-(CSS undefined) sort last. The example above makes the honest point a bare
-ranking hides: gpt and claude are a **statistical tie** at the top, and both are
-**significantly** ahead of llama. Also a library call:
+consistent (all graded on the shared prompt set). Because a leaderboard runs
+*many* pairwise tests at once, the chance of a spurious "significant" grows with
+the family, so each pair also carries a **Holm–Bonferroni-adjusted** p-value
+(`p_adj`) that controls the family-wise error rate; a gap that clears its raw CI
+but not the correction is reported as **`n.s. after correction`**. Models with no
+benign split (CSS undefined) sort last. The example above makes the honest point a
+bare ranking hides: gpt and claude are a **statistical tie** at the top, and both
+are **significantly** ahead of llama. Also a library call:
 `from weighted_safety.score import rank_models`. Add `--json` for the machine-readable
-ranking + pairwise matrix.
+ranking + pairwise matrix (now including `p_value`, `p_adjusted`, `significant_holm`,
+and a top-level `correction` block).
 
 ---
 
