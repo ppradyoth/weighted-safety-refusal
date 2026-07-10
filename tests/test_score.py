@@ -757,3 +757,95 @@ def test_rank_cli_disambiguates_duplicate_stems(dataset, tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert set(out["ranking"]) == {"model", "model#2"}
     assert len(out["models"]) == 2
+
+
+# --- bootstrap p-value + Holm–Bonferroni multiple-comparison correction ----
+
+
+def test_bootstrap_metric_diff_reports_two_sided_p_value(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    paired = wsr_score.paired_records(dataset, strong, weak, DEFAULT_CATEGORY_WEIGHTS)
+    d = wsr_score.bootstrap_css_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS)
+    assert 0.0 <= d["p_value"] <= 1.0
+    # A wide, CI-significant gap should carry a small p-value, and the two
+    # significance signals (CI-excludes-0, p<0.05) agree here.
+    assert d["significant"] is True
+    assert d["p_value"] < 0.05
+
+
+def test_bootstrap_p_value_is_one_for_identical_models(dataset):
+    v = _verdicts(dataset, "A", "A")
+    paired = wsr_score.paired_records(dataset, v, dict(v), DEFAULT_CATEGORY_WEIGHTS)
+    d = wsr_score.bootstrap_css_diff_ci(paired, DEFAULT_CATEGORY_WEIGHTS)
+    assert d["diff"] == 0.0
+    assert d["p_value"] == pytest.approx(1.0)
+    assert d["significant"] is False
+
+
+def test_holm_bonferroni_step_down_and_thresholds():
+    # m = 3 finite p-values. Sorted: 0.001, 0.04, 0.5.
+    #   k=0: 0.001 ≤ 0.05/3 = 0.0167  → reject
+    #   k=1: 0.04  ≤ 0.05/2 = 0.025   → FAIL, step-down stops here and below
+    out = wsr_score.holm_bonferroni({"a": 0.001, "b": 0.04, "c": 0.5})
+    assert out["a"]["significant_holm"] is True
+    assert out["b"]["significant_holm"] is False   # raw-significant, but not after Holm
+    assert out["c"]["significant_holm"] is False
+    # Raw (uncorrected) flags b as significant; Holm corrects that.
+    assert out["b"]["significant_raw"] is True
+    # Adjusted p-values: (m−k)·p_(k), monotone-enforced, capped at 1.
+    assert out["a"]["p_adjusted"] == pytest.approx(0.003)   # 3 * 0.001
+    assert out["b"]["p_adjusted"] == pytest.approx(0.08)    # 2 * 0.04
+    assert out["c"]["p_adjusted"] == pytest.approx(0.5)     # 1 * 0.5
+    # monotone non-decreasing down the sorted order
+    assert out["a"]["p_adjusted"] <= out["b"]["p_adjusted"] <= out["c"]["p_adjusted"]
+
+
+def test_holm_bonferroni_excludes_nan_from_the_family():
+    # A nan comparison (e.g. no benign split) must not shrink the thresholds of the
+    # real tests: family size is 1 here, so a=0.03 clears 0.05/1 and is rejected.
+    out = wsr_score.holm_bonferroni({"a": 0.03, "b": float("nan")})
+    assert out["a"]["significant_holm"] is True
+    assert out["a"]["p_adjusted"] == pytest.approx(0.03)
+    assert math.isnan(out["b"]["p_adjusted"])
+    assert out["b"]["significant_holm"] is False
+    assert out["b"]["significant_raw"] is False
+
+
+def test_holm_bonferroni_is_never_more_lenient_than_bonferroni():
+    # Every Holm rejection is also a plain-Bonferroni (α/m) rejection here, and
+    # Holm rejects at least as many — the uniform-improvement property.
+    pvals = {"a": 0.004, "b": 0.02, "c": 0.2, "d": 0.9}
+    out = wsr_score.holm_bonferroni(pvals, alpha=0.05)
+    m = 4
+    bonf = {k: (p < 0.05 / m) for k, p in pvals.items()}
+    for k in pvals:
+        if bonf[k]:
+            assert out[k]["significant_holm"] is True
+    assert sum(o["significant_holm"] for o in out.values()) >= sum(bonf.values())
+
+
+def test_rank_applies_holm_correction_and_never_exceeds_raw(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    mid = _weaker_verdicts(dataset, miss_every=4)
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    rank = wsr_score.rank_models(dataset, {"strong": strong, "mid": mid, "weak": weak})
+    corr = rank["correction"]
+    assert corr["method"] == "holm-bonferroni"
+    assert corr["family_size"] == 3                       # C(3,2), all defined
+    # FWER control can only shrink the significant set, never grow it.
+    assert corr["n_significant_holm"] <= corr["n_significant_raw"]
+    for d in rank["pairwise"].values():
+        assert "p_value" in d and "p_adjusted" in d and "significant_holm" in d
+        assert 0.0 <= d["p_value"] <= 1.0
+    # The widest gap (top vs bottom) survives correction.
+    assert rank["pairwise"]["strong::weak"]["significant_holm"] is True
+
+
+def test_rank_report_shows_correction_note(dataset):
+    strong = _verdicts(dataset, "A", "A")
+    weak = _weaker_verdicts(dataset, miss_every=2)
+    rank = wsr_score.rank_models(dataset, {"strong": strong, "weak": weak})
+    text = wsr_score._format_ranking(rank)
+    assert "holm-bonferroni" in text.lower()
+    assert "FWER" in text or "correction" in text.lower()

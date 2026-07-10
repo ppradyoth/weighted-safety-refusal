@@ -262,6 +262,7 @@ def bootstrap_metric_diff_ci(
             "diff": diff,
             "ci": (float("nan"), float("nan")),
             "prob_a_better": float("nan"),
+            "p_value": float("nan"),
             "significant": False,
             "n_boot": 0,
         }
@@ -292,11 +293,20 @@ def bootstrap_metric_diff_ci(
     diffs.sort()
     lo = _percentile(diffs, alpha / 2)
     hi = _percentile(diffs, 1 - alpha / 2)
+    # Two-sided bootstrap p-value for H0: Δ = 0, from the resample distribution.
+    # Uses the +1 smoothed tail proportions (Davison & Hinkley) so the minimum
+    # achievable p is 1/(B+1) rather than an over-confident exact 0; zeros count
+    # toward both tails, which is the conservative convention.
+    b = len(diffs)
+    n_ge0 = sum(1 for d in diffs if d >= 0.0)
+    n_le0 = sum(1 for d in diffs if d <= 0.0)
+    p_value = min(1.0, 2.0 * min((1 + n_ge0) / (1 + b), (1 + n_le0) / (1 + b)))
     return {
         "metric": metric,
         "diff": point,
         "ci": (lo, hi),
         "prob_a_better": n_a_better / len(diffs),
+        "p_value": p_value,
         "significant": (lo > 0.0) or (hi < 0.0),
         "n_boot": len(diffs),
     }
@@ -653,6 +663,64 @@ def _format_report(result: WSRResult) -> str:
     return "\n".join(lines)
 
 
+def holm_bonferroni(
+    pvalues: dict[str, float], alpha: float = 0.05
+) -> dict[str, dict]:
+    """Holm–Bonferroni step-down correction over a family of p-values.
+
+    Running one significance test per pair at α = 0.05 controls the error rate of
+    each test in isolation, but a leaderboard of *N* models runs *N(N−1)/2* of them
+    at once, so the chance of at least one false "significant" verdict grows with
+    the family (10 pairs → ~40% under the global null). Holm–Bonferroni controls
+    that **family-wise error rate** while being uniformly more powerful than a plain
+    Bonferroni ``α/m``: it sorts the *m* finite p-values ascending and rejects the
+    ``k``-th (0-indexed) only while every earlier one cleared its own threshold and
+    ``p_(k) ≤ α / (m − k)`` — the first failure stops all further rejections
+    (step-down).
+
+    ``nan`` p-values (an undefined comparison, e.g. no benign split) are **excluded
+    from the family**: they carry no test, so counting them would needlessly shrink
+    every threshold. Returns, per input key, ``{"p_value", "p_adjusted",
+    "significant_raw" (p < α, uncorrected), "significant_holm"}``; excluded keys
+    report ``p_adjusted = nan`` and both flags ``False``. Adjusted p-values are the
+    monotone-enforced ``(m − k) · p_(k)`` capped at 1, so they can be thresholded at
+    any α and never decrease down the sorted order."""
+    finite = {k: p for k, p in pvalues.items() if not math.isnan(p)}
+    m = len(finite)
+    out: dict[str, dict] = {}
+    for k, p in pvalues.items():
+        if math.isnan(p):
+            out[k] = {
+                "p_value": p,
+                "p_adjusted": float("nan"),
+                "significant_raw": False,
+                "significant_holm": False,
+            }
+        else:
+            out[k] = {
+                "p_value": p,
+                "p_adjusted": float("nan"),
+                "significant_raw": p < alpha,
+                "significant_holm": False,
+            }
+    if m == 0:
+        return out
+
+    ordered = sorted(finite.items(), key=lambda kv: (kv[1], kv[0]))
+    prev_adj = 0.0
+    still_rejecting = True
+    for i, (key, p) in enumerate(ordered):
+        adj = min(1.0, (m - i) * p)
+        adj = max(adj, prev_adj)  # enforce monotone non-decreasing adjusted p
+        prev_adj = adj
+        out[key]["p_adjusted"] = adj
+        if still_rejecting and p <= alpha / (m - i):
+            out[key]["significant_holm"] = True
+        else:
+            still_rejecting = False
+    return out
+
+
 def compare_models(
     dataset: list[dict],
     verdicts_a: dict[str, str],
@@ -751,13 +819,39 @@ def rank_models(
                 "diff": d["diff"],
                 "ci": [d["ci"][0], d["ci"][1]],
                 "prob_a_better": d["prob_a_better"],
+                "p_value": d["p_value"],
                 "significant": d["significant"],
                 "n_boot": d["n_boot"],
             }
+
+    # Family-wise error control across all N(N−1)/2 pairwise tests. Each pair's CI
+    # already gives an isolated verdict; Holm–Bonferroni over the pairwise
+    # bootstrap p-values adds the multiplicity-corrected verdict so the leaderboard
+    # doesn't over-claim significant gaps just because many pairs were tested.
+    corrected = holm_bonferroni({k: v["p_value"] for k, v in pairwise.items()})
+    for k, c in corrected.items():
+        pairwise[k]["p_adjusted"] = c["p_adjusted"]
+        pairwise[k]["significant_holm"] = c["significant_holm"]
+
+    family_size = sum(1 for v in pairwise.values() if not math.isnan(v["p_value"]))
     return {
         "models": {name: res.to_dict() for name, res in results.items()},
         "ranking": ranking,
         "pairwise": pairwise,
+        "correction": {
+            "method": "holm-bonferroni",
+            "alpha": 0.05,
+            "family_size": family_size,
+            # Both counts are on the same bootstrap-p basis so Holm ≤ raw always.
+            "n_significant_raw": sum(
+                1
+                for v in pairwise.values()
+                if not math.isnan(v["p_value"]) and v["p_value"] < 0.05
+            ),
+            "n_significant_holm": sum(
+                1 for v in pairwise.values() if v.get("significant_holm")
+            ),
+        },
     }
 
 
@@ -780,25 +874,49 @@ def _format_ranking(rank: dict) -> str:
             lo, hi = d["CSS_ci"]
             lines.append(f"{i:>2}  {name:22.22s}{css:>8.3f}   [{lo:.3f}, {hi:.3f}]")
     lines.append("")
-    lines.append("Pairwise ΔCSS (higher − lower), paired bootstrap:")
+    corr = rank.get("correction", {})
+    if corr:
+        lines.append(
+            f"Pairwise ΔCSS (higher − lower), paired bootstrap "
+            f"— {corr.get('method', 'holm-bonferroni')} FWER control over "
+            f"{corr.get('family_size', 0)} tests (α = {corr.get('alpha', 0.05)}):"
+        )
+    else:
+        lines.append("Pairwise ΔCSS (higher − lower), paired bootstrap:")
     for key, d in rank["pairwise"].items():
         a, b = key.split("::", 1)
         if math.isnan(d["diff"]):
             lines.append(f"  {a} vs {b}: ΔCSS undefined (no benign split)")
             continue
         lo, hi = d["ci"]
-        verdict = "significant" if d["significant"] else "within noise"
+        # Holm-corrected verdict is the headline; note when multiplicity flips it.
+        holm = d.get("significant_holm", d["significant"])
+        p_adj = d.get("p_adjusted", float("nan"))
+        if holm:
+            verdict = "significant"
+        elif d["significant"]:
+            verdict = "n.s. after correction"
+        else:
+            verdict = "within noise"
+        padj_txt = f"  p_adj {p_adj:.3f}" if not math.isnan(p_adj) else ""
         lines.append(
-            f"  {a} > {b}: ΔCSS {d['diff']:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]  → {verdict}"
+            f"  {a} > {b}: ΔCSS {d['diff']:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]{padj_txt}  → {verdict}"
         )
     if len(ranking) >= 2:
         top = rank["pairwise"].get(f"{ranking[0]}::{ranking[1]}", {})
         if top and not math.isnan(top.get("diff", float("nan"))):
             lines.append("")
-            if top["significant"]:
+            if top.get("significant_holm", top["significant"]):
                 lines.append(
                     f"Verdict: #1 {ranking[0]} leads #2 {ranking[1]} by a "
-                    f"**statistically significant** CSS margin at this sample size."
+                    f"**statistically significant** CSS margin (survives "
+                    f"{corr.get('method', 'multiple-comparison')} correction) at this sample size."
+                )
+            elif top["significant"]:
+                lines.append(
+                    f"Verdict: #1 {ranking[0]}'s raw lead over #2 {ranking[1]} does "
+                    f"**not survive** multiple-comparison correction across "
+                    f"{corr.get('family_size', 0)} pairwise tests — treat as not yet established."
                 )
             else:
                 lines.append(
