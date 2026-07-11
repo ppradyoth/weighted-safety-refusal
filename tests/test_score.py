@@ -759,6 +759,82 @@ def test_rank_cli_disambiguates_duplicate_stems(dataset, tmp_path, capsys):
     assert len(out["models"]) == 2
 
 
+# --- joint rank probabilities: P(best) + expected rank -------------------
+
+
+def test_rank_probs_dominant_model_is_almost_always_best(dataset):
+    strong = _verdicts(dataset, "A", "A")            # perfect CSS
+    weak = _weaker_verdicts(dataset, miss_every=2)   # bypasses 1/2 of harmful
+    rank = wsr_score.rank_models(dataset, {"strong": strong, "weak": weak})
+    rp = rank["rank_probs"]
+    # The dominant model tops nearly every resample; the weak one almost never.
+    assert rp["prob_best"]["strong"] > 0.95
+    assert rp["prob_best"]["weak"] < 0.05
+    # Expected rank tracks the ordering (1 = best).
+    assert rp["expected_rank"]["strong"] < rp["expected_rank"]["weak"]
+
+
+def test_rank_probs_best_probabilities_sum_to_one(dataset):
+    # Over a field that all shares a benign split, exactly one model is best in
+    # each resample (ties split fractionally), so P(best) sums to 1.
+    v = {
+        "a": _verdicts(dataset, "A", "A"),
+        "b": _weaker_verdicts(dataset, miss_every=3),
+        "c": _weaker_verdicts(dataset, miss_every=2),
+    }
+    rank = wsr_score.rank_models(dataset, v)
+    total = sum(rank["rank_probs"]["prob_best"].values())
+    assert total == pytest.approx(1.0)
+    # Mean of the expected ranks is the mean of 1..N regardless of the field.
+    ranks = rank["rank_probs"]["expected_rank"].values()
+    assert sum(ranks) / len(v) == pytest.approx((len(v) + 1) / 2)
+
+
+def test_rank_probs_are_deterministic(dataset):
+    v = {"a": _verdicts(dataset, "A", "A"), "b": _weaker_verdicts(dataset)}
+    first = wsr_score.rank_probabilities(dataset, v, DEFAULT_CATEGORY_WEIGHTS)
+    second = wsr_score.rank_probabilities(dataset, v, DEFAULT_CATEGORY_WEIGHTS)
+    assert first == second                            # fixed seed → identical result
+
+
+def test_rank_probs_all_undefined_css_returns_nan():
+    # When the dataset has no benign split, CSS is undefined for *every* model
+    # together (they share the prompts), so no resample carries a ranking: usable
+    # count is 0 and the probabilities are nan rather than a spurious winner.
+    harmful_only = [
+        {"id": "h1", "metadata": {"category": "prompt_injection", "type": "harmful"}},
+        {"id": "h2", "metadata": {"category": "jailbreaking", "type": "harmful"}},
+    ]
+    rp = wsr_score.rank_probabilities(
+        harmful_only,
+        {"a": {"h1": "A", "h2": "A"}, "b": {"h1": "A", "h2": "B"}},
+        {"prompt_injection": 1.0, "jailbreaking": 1.0},
+    )
+    assert rp["n_boot"] == 0
+    assert all(math.isnan(p) for p in rp["prob_best"].values())
+    assert all(math.isnan(r) for r in rp["expected_rank"].values())
+
+
+def test_rank_probs_appear_in_report_and_json(dataset, tmp_path, capsys):
+    def _write(name, verdicts):
+        p = tmp_path / name
+        p.write_text("\n".join(json.dumps({"id": k, "verdict": v}) for k, v in verdicts.items()))
+        return p
+
+    strong = _write("strong.jsonl", _verdicts(dataset, "A", "A"))
+    weak = _write("weak.jsonl", _weaker_verdicts(dataset, 2))
+    # JSON payload carries the rank_probs block.
+    rc = wsr_score.main(["--rank", str(strong), str(weak), "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "rank_probs" in out
+    assert set(out["rank_probs"]["prob_best"]) == {"strong", "weak"}
+    # Text leaderboard renders the P(best) column.
+    wsr_score.main(["--rank", str(strong), str(weak)])
+    text = capsys.readouterr().out
+    assert "P(best)" in text
+
+
 # --- bootstrap p-value + Holm–Bonferroni multiple-comparison correction ----
 
 
