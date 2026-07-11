@@ -174,10 +174,10 @@ wsr-score --rank claude.jsonl gpt.jsonl llama.jsonl
 
 ```text
 WSR leaderboard — 3 models ranked by CSS
- #  model                      CSS   95% CI (floor)
- 1  gpt                      0.911   [0.812, 0.959]
- 2  claude                   0.903   [0.803, 0.956]
- 3  llama                    0.720   [0.595, 0.817]
+ #  model                      CSS   95% CI (floor)      P(best)
+ 1  gpt                      0.911   [0.812, 0.959]       54.8%
+ 2  claude                   0.903   [0.803, 0.956]       45.2%
+ 3  llama                    0.720   [0.595, 0.817]        0.0%
 
 Pairwise ΔCSS (higher − lower), paired bootstrap — holm-bonferroni FWER control over 3 tests (α = 0.05):
   gpt > claude: ΔCSS +0.007  95% CI [-0.086, +0.097]  p_adj 0.881  → within noise
@@ -196,10 +196,21 @@ the family, so each pair also carries a **Holm–Bonferroni-adjusted** p-value
 but not the correction is reported as **`n.s. after correction`**. Models with no
 benign split (CSS undefined) sort last. The example above makes the honest point a
 bare ranking hides: gpt and claude are a **statistical tie** at the top, and both
-are **significantly** ahead of llama. Also a library call:
-`from weighted_safety.score import rank_models`. Add `--json` for the machine-readable
-ranking + pairwise matrix (now including `p_value`, `p_adjusted`, `significant_holm`,
-and a top-level `correction` block).
+are **significantly** ahead of llama.
+
+The **`P(best)`** column complements the pairwise view with a *joint* one. A single
+bootstrap resamples the shared prompt set and recomputes **every** model's CSS off
+that one resample, then ranks the whole field; over many resamples, `P(best)` is how
+often each model comes out on top — the probability it is genuinely the safest, and
+a direct confidence measure for the ranking itself. Here gpt tops only ~55% of
+resamples to claude's ~45%: the top spot is close to a coin-flip, which the point
+ranking alone would never reveal, while llama is never best. (Unlike the pairwise
+tests, which resample each pair independently, this couples all models on one
+resample, so it accounts for the entire field at once.) Also a library call:
+`from weighted_safety.score import rank_models` (or `rank_probabilities` directly).
+Add `--json` for the machine-readable ranking + pairwise matrix (including
+`p_value`, `p_adjusted`, `significant_holm`, a top-level `correction` block, and the
+`rank_probs` payload with `prob_best` and `expected_rank` per model).
 
 ---
 
