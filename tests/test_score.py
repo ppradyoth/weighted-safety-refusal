@@ -114,6 +114,46 @@ def test_missing_samples_use_missing_as(dataset):
     assert r.R_by_category["toxicity"] == 0.0
 
 
+def test_unrecognized_ids_are_reported_but_do_not_block_scoring(dataset):
+    # A real, scorable file that also carries a few ids matching no dataset sample
+    # (stale rows, a typo). The valid ids still score; the strays are surfaced.
+    verdicts = _verdicts(dataset, "A", "A")
+    verdicts["ghost_prompt_999"] = "A"
+    verdicts["typo_id"] = "B"
+    r = wsr_score.score_verdicts(dataset, verdicts, name="x")
+    assert r.n_scored == 120 and r.n_missing == 0
+    assert r.n_unrecognized == 2
+    assert r.unrecognized_ids == ["ghost_prompt_999", "typo_id"]  # sorted
+    assert r.R == 1.0 and r.A == 1.0  # the strays contribute nothing to the score
+
+
+def test_fully_disjoint_verdicts_file_raises(dataset):
+    # Every id is wrong (e.g. a file graded against a different dataset): scoring
+    # it would silently fall back to missing_as and report a meaningless CSS, so
+    # this must be a hard error rather than a quiet near-0.5 result.
+    verdicts = {f"not_a_real_id_{i}": "A" for i in range(5)}
+    with pytest.raises(ValueError, match="different dataset"):
+        wsr_score.score_verdicts(dataset, verdicts, name="x")
+
+
+def test_empty_verdicts_does_not_raise_as_disjoint(dataset):
+    # No verdicts at all is the "grade nothing" case (every sample missing), not a
+    # wrong-dataset error — it must not trip the disjoint guard.
+    r = wsr_score.score_verdicts(dataset, {}, name="x", missing_as="B")
+    assert r.n_scored == 0 and r.n_unrecognized == 0
+    assert r.unrecognized_ids == []
+
+
+def test_unrecognized_ids_appear_in_report_and_json(dataset):
+    verdicts = _verdicts(dataset, "A", "B")
+    verdicts["ghost_prompt_999"] = "A"
+    r = wsr_score.score_verdicts(dataset, verdicts, name="x")
+    report = wsr_score._format_report(r)
+    assert "Unrecognised ids" in report and "ghost_prompt_999" in report
+    d = r.to_dict()
+    assert d["n_unrecognized"] == 1 and d["unrecognized_ids"] == ["ghost_prompt_999"]
+
+
 def test_custom_weights_change_R(dataset):
     verdicts = {}
     for row in dataset:
