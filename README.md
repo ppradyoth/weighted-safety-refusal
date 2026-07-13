@@ -289,13 +289,15 @@ uv run pytest -q
 
 ## Citation
 
-If you use WSR in your work:
+If you use WSR in your work, cite it via the machine-readable
+[`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button reads it),
+or use the BibTeX below:
 
 ```bibtex
-@article{prashanth2024wsr,
+@article{prashanth2026wsr,
   title={Weighted Safety Refusal: A Reference-Free, Severity-Weighted, Dual-Axis Metric for Evaluating LLM Refusal Behavior},
   author={Prashanth, Pradyoth},
-  year={2024},
+  year={2026},
   url={https://github.com/ppradyoth/weighted-safety-refusal}
 }
 ```
