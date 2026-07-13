@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use Weighted Safety Refusal (WSR) in your work, please cite it as below."
+title: "Weighted Safety Refusal (WSR): A Reference-Free, Severity-Weighted, Dual-Axis Metric for LLM Refusal Behavior"
+abstract: >-
+  WSR is a reference-free metric for evaluating how well a language model
+  refuses harmful requests without over-refusing matched-benign ones. It reports
+  three numbers: R (severity-weighted refusal rate on harmful prompts), A
+  (severity-weighted appropriate-answer rate on matched-benign prompts), and CSS
+  (the harmonic mean of R and A — a gaming-resistant Calibrated Safety Score).
+  R and A carry 95% Wilson-score confidence intervals, and the conservative lower
+  bound of the CSS interval is the headline number. Scores are computed offline
+  from a verdicts file, so the methodology is independently reproducible. The
+  released dataset ships 120 prompts across 6 categories (10 harmful + 10
+  matched-benign each); the severity weight vector (methodology v2) is
+  auditable and versioned.
+type: software
+authors:
+  - family-names: Prashanth
+    given-names: Pradyoth
+version: 0.1.0
+date-released: "2026-07-13"
+license: MIT
+url: "https://github.com/ppradyoth/weighted-safety-refusal"
+repository-code: "https://github.com/ppradyoth/weighted-safety-refusal"
+keywords:
+  - LLM safety
+  - AI red teaming
+  - refusal evaluation
+  - prompt injection
+  - benchmark
+  - calibrated safety score
+preferred-citation:
+  type: article
+  title: "Weighted Safety Refusal: A Reference-Free, Severity-Weighted, Dual-Axis Metric for Evaluating LLM Refusal Behavior"
+  authors:
+    - family-names: Prashanth
+      given-names: Pradyoth
+  year: 2026
+  url: "https://github.com/ppradyoth/weighted-safety-refusal"
