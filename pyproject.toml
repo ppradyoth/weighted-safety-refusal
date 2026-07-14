@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Weighted Safety Refusal evaluation suite for Inspect AI"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Pradyoth Prashanth" },
+]
 dependencies = [
     "inspect_ai>=0.3.0",
 ]

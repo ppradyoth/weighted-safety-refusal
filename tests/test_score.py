@@ -423,6 +423,31 @@ def test_load_verdicts_requires_a_verdict(tmp_path):
         wsr_score.load_verdicts(p)
 
 
+def test_load_verdicts_requires_an_id(tmp_path):
+    # A row with no id used to raise a bare KeyError; it now raises a clear
+    # ValueError naming the file and line so a malformed file is diagnosable.
+    p = tmp_path / "noid.jsonl"
+    p.write_text('{"verdict": "A"}\n')
+    with pytest.raises(ValueError, match="no 'id'"):
+        wsr_score.load_verdicts(p)
+
+
+def test_load_verdicts_rejects_conflicting_duplicate_id(tmp_path):
+    # Two rows for the same id with different grades is silent corruption under
+    # last-write-wins — it must be a hard error for a reproducible score.
+    p = tmp_path / "dup.jsonl"
+    p.write_text('{"id": "a", "verdict": "A"}\n{"id": "a", "verdict": "B"}\n')
+    with pytest.raises(ValueError, match="duplicate id"):
+        wsr_score.load_verdicts(p)
+
+
+def test_load_verdicts_allows_exact_duplicate_id(tmp_path):
+    # An identical repeat carries no ambiguity, so it is accepted.
+    p = tmp_path / "dup_ok.jsonl"
+    p.write_text('{"id": "a", "verdict": "A"}\n{"id": "a", "verdict": "A"}\n')
+    assert wsr_score.load_verdicts(p) == {"a": "A"}
+
+
 def test_to_dict_is_json_serialisable(dataset):
     r = wsr_score.score_verdicts(dataset, _verdicts(dataset, "A", "A"))
     blob = json.dumps(r.to_dict())
