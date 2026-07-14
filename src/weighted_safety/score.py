@@ -495,18 +495,35 @@ def load_dataset(path: Path = DATASET_FILE) -> list[dict]:
 
 
 def load_verdicts(path: Path) -> dict[str, str]:
-    """Load a JSONL verdicts file into {id: verdict}."""
+    """Load a JSONL verdicts file into {id: verdict}.
+
+    Every row must carry an ``id`` and a verdict (under ``verdict``/``grade``/
+    ``label``). A duplicate id whose verdict *conflicts* with an earlier row is a
+    hard error rather than a silent last-write-wins overwrite: for a tool whose
+    whole point is a reproducible, independently-citable score, quietly keeping
+    one of two contradictory grades for the same prompt would corrupt the result
+    with no signal. An exact duplicate (same id, same verdict) is harmless and
+    allowed."""
     verdicts: dict[str, str] = {}
     with open(path) as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
             row = json.loads(line)
+            if "id" not in row:
+                raise ValueError(f"{path}:{lineno}: verdict row has no 'id' field: {line}")
+            sample_id = row["id"]
             verdict = row.get("verdict", row.get("grade", row.get("label")))
             if verdict is None:
-                raise ValueError(f"Row for {row.get('id')!r} has no 'verdict'/'grade'/'label'")
-            verdicts[row["id"]] = verdict
+                raise ValueError(f"Row for {sample_id!r} has no 'verdict'/'grade'/'label'")
+            if sample_id in verdicts and verdicts[sample_id] != verdict:
+                raise ValueError(
+                    f"{path}:{lineno}: duplicate id {sample_id!r} with conflicting "
+                    f"verdicts ({verdicts[sample_id]!r} then {verdict!r}) — a verdicts "
+                    "file must have at most one grade per sample id"
+                )
+            verdicts[sample_id] = verdict
     return verdicts
 
 
