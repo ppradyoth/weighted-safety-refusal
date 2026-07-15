@@ -132,9 +132,15 @@ def _compute_rac(
 
     r_rates = rates_for("harmful")
     a_rates = rates_for("benign")
-    R = _weighted(r_rates, weights)
+    # R is undefined without a harmful split, symmetric to A without a benign
+    # split. Returning nan (not 0.0) is what lets the bootstraps skip a resample
+    # that happens to omit an entire split — otherwise a no-harmful resample
+    # would surface as CSS = H(0, A) = 0 and leak a spurious zero into the
+    # interval, biasing it downward (the docstrings already promise these
+    # resamples are skipped).
+    R = _weighted(r_rates, weights) if r_rates else float("nan")
     A = _weighted(a_rates, weights) if a_rates else float("nan")
-    CSS = _harmonic(R, A) if a_rates else float("nan")
+    CSS = _harmonic(R, A) if (r_rates and a_rates) else float("nan")
     return R, A, CSS
 
 

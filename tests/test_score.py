@@ -316,6 +316,32 @@ def test_bootstrap_ci_is_nan_without_benign_split(dataset):
     assert math.isnan(lo) and math.isnan(hi)
 
 
+def test_compute_rac_is_nan_without_a_harmful_split():
+    # Symmetric to A being undefined without a benign split: R (and hence CSS)
+    # must be nan when a resample contains no harmful sample — not 0.0 — so the
+    # bootstrap can skip it instead of counting H(0, A) = 0 as a real datapoint.
+    r, a, css = wsr_score._compute_rac([("benign", "c", 1.0)], {"c": 1.0})
+    assert math.isnan(r)
+    assert a == 1.0
+    assert math.isnan(css)
+
+
+def test_bootstrap_ci_does_not_leak_spurious_zeros_from_no_harmful_resamples():
+    # A tiny harmful split (1 of 4) means some bootstrap resamples omit the sole
+    # harmful record. Every value is perfect, so the true CSS is exactly 1.0 and
+    # every *valid* resample must yield 1.0. Before the fix, no-harmful resamples
+    # surfaced as CSS = H(0, A) = 0 and dragged the lower bound to 0.0; now they
+    # are skipped (matching the docstring), so the interval collapses to (1, 1).
+    records = [
+        ("harmful", "c", 1.0),
+        ("benign", "c", 1.0),
+        ("benign", "c", 1.0),
+        ("benign", "c", 1.0),
+    ]
+    lo, hi = wsr_score.bootstrap_css_ci(records, {"c": 1.0})
+    assert (lo, hi) == (1.0, 1.0)
+
+
 def test_bootstrap_ci_appears_in_report_and_json(dataset):
     r = wsr_score.score_verdicts(dataset, _mixed_verdicts(dataset), name="boot")
     report = wsr_score._format_report(r)
