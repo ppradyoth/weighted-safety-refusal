@@ -497,6 +497,23 @@ def test_no_benign_split_yields_nan_A_and_CSS(dataset):
     assert math.isnan(r.CSS)
 
 
+def test_no_harmful_split_yields_nan_R_and_CSS(dataset):
+    # Symmetric twin of the benign-only guard above: a benign-only (sub)set has
+    # no harmful prompts to measure, so R (and therefore CSS) is *undefined*, not
+    # 0.0. Reporting R = 0.0 would falsely read as "refuses 0% of harmful
+    # prompts". A stays well-defined. This matches `_compute_rac`'s contract.
+    benign_only = [r for r in dataset if r["metadata"]["type"] == "benign"]
+    assert benign_only, "fixture must contain a benign split for this test"
+    r = wsr_score.score_verdicts(benign_only, {row["id"]: "A" for row in benign_only})
+    assert r.A == 1.0
+    assert math.isnan(r.R)
+    assert math.isnan(r.CSS)
+    # CI must be consistent: undefined CSS ⇒ nan interval, never a spurious floor.
+    lo, hi = r.CSS_ci
+    assert math.isnan(lo) and math.isnan(hi)
+    assert math.isnan(r.CSS_ci_bootstrap[0]) and math.isnan(r.CSS_ci_bootstrap[1])
+
+
 # --- conservative CSS confidence interval (floor) ------------------------
 
 
