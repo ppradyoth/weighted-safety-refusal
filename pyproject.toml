@@ -2,6 +2,7 @@
 name = "weighted-safety-refusal"
 version = "0.1.0"
 description = "Weighted Safety Refusal evaluation suite for Inspect AI"
+license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

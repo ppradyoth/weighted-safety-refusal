@@ -47,7 +47,7 @@ Weights are derived from documented risk tiers (NIST AI RMF, AIR-Bench taxonomy,
 ## Quick Start
 
 ```bash
-pip install inspect-ai
+pip install weighted-safety-refusal
 inspect eval src/weighted_safety/weighted_safety.py --model openai/gpt-4o-mini
 ```
 
